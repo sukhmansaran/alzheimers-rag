@@ -108,6 +108,19 @@ curl -X POST http://localhost:8000/query \
   -d '{"question": "What are the risk factors for Alzheimer?"}'
 ```
 
+Every `/query` response includes a `disclaimer` field (research use only, not medical advice); the CLI prints it too.
+
+### Security (before exposing the API beyond your machine)
+
+Set these in `.env`:
+
+```
+API_KEY=some-long-random-string              # /query and /sources then require header X-API-Key
+CORS_ORIGINS=https://your-frontend.example.com  # comma-separated; default allows localhost only
+```
+
+With no `API_KEY`, the API is open, which is fine for local use. `/health` is always open.
+
 ## Evaluation
 
 `python -m app.evaluate` runs three checks:
@@ -145,10 +158,10 @@ The full `python -m app.evaluate` suite needs Ollama and the ingested corpus, so
 │   ├── test_retrieve.py# Retrieval pipeline (real FAISS, fake embedder)
 │   ├── test_api.py     # API endpoints (retriever + LLM stubbed)
 │   └── eval_results.md # Evaluation results log
-├── .env                # HF_TOKEN, OLLAMA_MODEL, OLLAMA_URL (not tracked)
+├── .env                # HF_TOKEN, OLLAMA_MODEL, OLLAMA_URL, API_KEY, CORS_ORIGINS (not tracked)
 ├── .github/workflows/ci.yml  # Lint + test pipeline
-├── requirements.txt
-├── requirements-dev.txt     # pytest, httpx, ruff
+├── requirements.txt         # exact pinned versions
+├── requirements-dev.txt     # pytest, httpx, ruff (pinned)
 ├── pyproject.toml           # pytest + ruff config
 └── .gitignore
 ```
@@ -156,11 +169,12 @@ The full `python -m app.evaluate` suite needs Ollama and the ingested corpus, so
 ## Design Decisions
 
 - Section-aware chunking preserves academic structure (Abstract, Methods, Results, etc.)
-- Section weighting: Results > Discussion > Abstract > Conclusion > Methods > Introduction
+- Section weighting at rerank time (applied once): Results 1.3 > Discussion/Abstract 1.2 > Conclusion 1.1 > Methods 1.0 > Introduction 0.85
 - Ingestion = high recall, Retrieval = medium precision, LLM = final filter
 - Embedding-based dedup removes semantically duplicate chunks
 - Source diversity cap (2 chunks/paper) prevents single-paper dominance
 - Context budget: 4k chars, max 5 chunks, each truncated to 500 chars before budgeting
+- Preprint page banners (bioRxiv/medRxiv) and margin line numbers are stripped before section detection
 - Hallucination guard checks key-term overlap with source corpus
 - Confidence scoring combines retrieval quality + citation density + context overlap
 - Low temperature (0.2) for factual, deterministic output

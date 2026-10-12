@@ -6,7 +6,7 @@ Usage:
 """
 import sys
 
-from app.llm import LLMError, ask
+from app.llm import DISCLAIMER, LLMError, ask
 from app.retrieve import load_retriever, search
 
 
@@ -46,6 +46,7 @@ def main():
         print("Warnings:")
         for w in result["warnings"]:
             print(f"  - {w}")
+    print(f"\n⚠️  {DISCLAIMER}")
 
 
 if __name__ == "__main__":

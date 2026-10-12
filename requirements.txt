@@ -1,11 +1,14 @@
-pdfplumber
-sentence-transformers
-faiss-cpu
-numpy
-requests
-python-dotenv
-fastapi
-uvicorn
-# Pinned: newer scikit-learn builds are blocked by Windows Smart App Control
+# Exact versions tested together (Python 3.12, Windows + Linux CI).
+pdfplumber==0.11.10
+sentence-transformers==6.1.0
+faiss-cpu==1.15.1
+# numpy 2.5 requires Python 3.12+; 2.2.x is the last line supporting 3.10/3.11.
+numpy==2.5.4; python_version >= "3.12"
+numpy==2.2.6; python_version < "3.12"
+requests==2.34.2
+python-dotenv==1.2.4
+fastapi==0.143.0
+uvicorn==0.54.0
+# Newer scikit-learn builds are blocked by Windows Smart App Control
 # (pulled in by sentence-transformers). Revisit when upgrading.
 scikit-learn==1.6.1

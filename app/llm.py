@@ -17,6 +17,11 @@ MAX_CONTEXT_CHARS = 4000
 MAX_CHUNK_LEN = 500
 MAX_CHUNKS = 5
 
+DISCLAIMER = (
+    "For research and educational use only. This summarizes research papers and is not "
+    "medical advice; consult a healthcare professional about diagnosis or treatment."
+)
+
 
 class LLMError(RuntimeError):
     """Raised when the Ollama backend is unreachable or returns an error."""

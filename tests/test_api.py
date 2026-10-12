@@ -84,3 +84,34 @@ def test_query_validation(client, payload, status):
 def test_query_when_retriever_not_loaded(monkeypatch):
     monkeypatch.setattr(api, "_chunks", None)
     assert TestClient(api.app).post("/query", json={"question": "q"}).status_code == 503
+
+
+def test_query_includes_disclaimer(client, monkeypatch):
+    monkeypatch.setattr(api, "search", lambda *a, **kw: [])
+    assert "not medical advice" in client.post("/query", json={"question": "q"}).json()["disclaimer"]
+
+
+def test_api_key_enforced_when_configured(client, monkeypatch):
+    monkeypatch.setenv("API_KEY", "s3cret")
+    monkeypatch.setattr(api, "search", lambda *a, **kw: [])
+
+    assert client.post("/query", json={"question": "q"}).status_code == 401
+    assert client.post("/query", json={"question": "q"}, headers={"X-API-Key": "wrong"}).status_code == 401
+    assert client.post("/query", json={"question": "q"}, headers={"X-API-Key": "s3cret"}).status_code == 200
+    assert client.get("/sources").status_code == 401
+    assert client.get("/health").status_code == 200  # health stays open for monitoring
+
+
+def test_api_key_not_required_when_unset(client, monkeypatch):
+    monkeypatch.delenv("API_KEY", raising=False)
+    assert client.get("/sources").status_code == 200
+
+
+def test_cors_allows_localhost_but_not_other_origins(client):
+    def preflight(origin):
+        return client.options("/query", headers={
+            "Origin": origin, "Access-Control-Request-Method": "POST",
+        }).headers.get("access-control-allow-origin")
+
+    assert preflight("http://localhost:3000") == "http://localhost:3000"
+    assert preflight("https://evil.example.com") is None

@@ -3,14 +3,21 @@ FastAPI server for the Alzheimer's RAG pipeline.
 
 Usage:
     uvicorn app.api:app --reload --port 8000
+
+Security settings (.env):
+    API_KEY       If set, /query and /sources require header `X-API-Key: <API_KEY>`.
+    CORS_ORIGINS  Comma-separated allowed browser origins. Default: localhost only.
 """
+import os
+import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Security
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
-from app.llm import LLMError, ask
+from app.llm import DISCLAIMER, LLMError, ask
 from app.retrieve import load_retriever, search
 
 # ── Global state ──────────────────────────────────────────────
@@ -37,12 +44,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    # Without CORS_ORIGINS, only local pages (any port) may call the API from a browser.
+    allow_origin_regex=None if _cors_origins else r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
+
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def require_api_key(key: str | None = Security(_api_key_header)) -> None:
+    """Enforce X-API-Key when API_KEY is configured; open access otherwise (local dev)."""
+    expected = os.environ.get("API_KEY")
+    if expected and not (key and secrets.compare_digest(key, expected)):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 # ── Request / Response models ─────────────────────────────────
@@ -66,6 +85,7 @@ class QueryResponse(BaseModel):
     confidence: float
     warnings: list[str]
     sources: list[Source]
+    disclaimer: str = DISCLAIMER
 
 
 class HealthResponse(BaseModel):
@@ -83,7 +103,7 @@ def health():
     )
 
 
-@app.post("/query", response_model=QueryResponse)
+@app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_api_key)])
 def query(req: QueryRequest):
     if _model is None or _index is None or not _chunks:
         raise HTTPException(status_code=503, detail="Retriever not loaded")
@@ -130,7 +150,7 @@ def query(req: QueryRequest):
     )
 
 
-@app.get("/sources")
+@app.get("/sources", dependencies=[Depends(require_api_key)])
 def list_sources():
     """List all unique papers in the index."""
     if not _chunks:

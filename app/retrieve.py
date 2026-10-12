@@ -81,15 +81,19 @@ def _faiss_search(query: str, model, index, chunks, k: int) -> list[dict]:
 
 
 def rerank(query: str, results: list[dict]) -> list[dict]:
-    """Re-rank by combining cosine score + keyword overlap + section weight + chunk weight."""
+    """Re-rank by combining cosine score + keyword overlap + section weight.
+
+    Only SECTION_WEIGHTS is applied. The ingest-time chunk "weight" also encodes
+    section, so multiplying both double-counted it (Results ~2.6x) and let weak
+    Results chunks outrank much more similar Discussion/Abstract chunks.
+    """
     query_words = set(query.lower().split())
 
     for r in results:
         text_words = set(r["text"].lower().split())
         keyword_bonus = 0.01 * len(query_words & text_words)
         section_weight = SECTION_WEIGHTS.get(r["section"], 1.0)
-        chunk_weight = r.get("weight", 1.0)
-        r["rerank_score"] = (r["score"] + keyword_bonus) * section_weight * chunk_weight
+        r["rerank_score"] = (r["score"] + keyword_bonus) * section_weight
 
     return sorted(results, key=lambda x: x["rerank_score"], reverse=True)
 
