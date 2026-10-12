@@ -1,8 +1,13 @@
 """Unit tests for pure text-processing helpers in app.utils."""
+import os
+
+import pytest
+
 from app.utils import (
     chunk_text_weighted,
     clean_text,
     detect_sections,
+    get_pdf_paths,
     is_reference_noise,
     normalize_section,
 )
@@ -22,6 +27,22 @@ def test_normalize_section_variants():
 def test_clean_text_strips_citations_and_whitespace():
     assert clean_text("Amyloid [1,2] plaques\n  accumulate [3-5].") == "Amyloid plaques accumulate ."
     assert clean_text("neuro-\ndegeneration") == "neurodegeneration"
+
+
+def test_clean_text_splits_merged_words_but_keeps_scientific_terms():
+    assert clean_text("the diseaseThe results") == "the disease The results"
+    assert clean_text("ApoE4 mRNA McKhann PiB-PET") == "ApoE4 mRNA McKhann PiB-PET"
+
+
+def test_get_pdf_paths_missing_dir_raises_clear_error(tmp_path):
+    with pytest.raises(FileNotFoundError, match="Data directory not found"):
+        get_pdf_paths(str(tmp_path / "nope"))
+
+
+def test_get_pdf_paths_filters_and_sorts(tmp_path):
+    for name in ["b.pdf", "a.PDF", "notes.txt"]:
+        (tmp_path / name).write_text("")
+    assert [os.path.basename(p) for p in get_pdf_paths(str(tmp_path))] == ["a.PDF", "b.pdf"]
 
 
 def test_detect_sections_splits_on_headings():

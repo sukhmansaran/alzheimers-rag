@@ -1,7 +1,11 @@
 """Retrieval pipeline tests using a real FAISS index and a deterministic fake embedder."""
+import json
+
 import faiss
 import numpy as np
+import pytest
 
+from app import retrieve
 from app.retrieve import diversify, rerank, search
 
 
@@ -71,3 +75,21 @@ def test_search_drops_duplicates_and_short_or_citation_chunks():
     hits = search("amyloid", model, index, chunks, k=5)
 
     assert len(hits) == 1
+
+
+def test_load_retriever_rejects_mismatched_index_and_chunks(tmp_path, monkeypatch):
+    chunks = [_chunk("amyloid", "a.pdf"), _chunk("tau", "b.pdf")]
+    _, index = _build(chunks)
+    faiss.write_index(index, str(tmp_path / "e.faiss"))
+    (tmp_path / "c.json").write_text(json.dumps(chunks[:1]))
+    monkeypatch.setattr(retrieve, "INDEX_PATH", str(tmp_path / "e.faiss"))
+    monkeypatch.setattr(retrieve, "CHUNKS_PATH", str(tmp_path / "c.json"))
+
+    with pytest.raises(RuntimeError, match="re-run"):
+        retrieve.load_retriever()
+
+
+def test_load_retriever_missing_files_says_to_ingest(tmp_path, monkeypatch):
+    monkeypatch.setattr(retrieve, "INDEX_PATH", str(tmp_path / "missing.faiss"))
+    with pytest.raises(FileNotFoundError, match="app.ingest"):
+        retrieve.load_retriever()

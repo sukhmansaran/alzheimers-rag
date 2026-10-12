@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
 from app.utils import (
+    PROJECT_ROOT,
     chunk_text_weighted,
     clean_text,
     detect_sections,
@@ -23,7 +24,7 @@ from app.utils import (
 load_dotenv()
 HF_TOKEN = os.environ.get("HF_TOKEN", None)
 
-PROCESSED_DIR = "processed"
+PROCESSED_DIR = os.path.join(PROJECT_ROOT, "processed")
 CHUNKS_PATH = os.path.join(PROCESSED_DIR, "chunks.json")
 INDEX_PATH = os.path.join(PROCESSED_DIR, "embeddings.faiss")
 EMBED_MODEL = "all-MiniLM-L6-v2"
@@ -92,8 +93,15 @@ def run_ingestion():
     all_chunks = []
     for pdf_path in pdfs:
         print(f"  Processing: {os.path.basename(pdf_path)}")
-        chunks = process_pdf(pdf_path)
+        try:
+            chunks = process_pdf(pdf_path)
+        except Exception as e:  # one corrupt PDF shouldn't abort the whole run
+            print(f"  ⚠ Failed to process {os.path.basename(pdf_path)}: {e}")
+            continue
         all_chunks.extend(chunks)
+
+    if not all_chunks:
+        raise SystemExit("No chunks produced — add readable PDFs to data/ and re-run.")
 
     # Assign IDs
     for i, c in enumerate(all_chunks):
@@ -101,18 +109,13 @@ def run_ingestion():
 
     print(f"Total chunks: {len(all_chunks)}")
 
-    # 2. Save chunks
-    with open(CHUNKS_PATH, "w", encoding="utf-8") as f:
-        json.dump(all_chunks, f, indent=2, ensure_ascii=False)
-    print(f"Saved chunks → {CHUNKS_PATH}")
-
-    # 3. Embed
+    # 2. Embed
     print(f"Loading embedding model: {EMBED_MODEL}")
     model = SentenceTransformer(EMBED_MODEL, token=HF_TOKEN)
     texts = [c["text"] for c in all_chunks]
     embeddings = model.encode(texts, batch_size=32, show_progress_bar=True, convert_to_numpy=True)
 
-    # 4. FAISS index (cosine similarity via normalized IP)
+    # 3. FAISS index (cosine similarity via normalized IP)
     embeddings = np.array(embeddings, dtype=np.float32)
     faiss.normalize_L2(embeddings)
     dim = embeddings.shape[1]
@@ -120,6 +123,11 @@ def run_ingestion():
     index.add(embeddings)
     faiss.write_index(index, INDEX_PATH)
     print(f"Saved FAISS index → {INDEX_PATH} ({index.ntotal} vectors, dim={dim})")
+
+    # 4. Save chunks last: their order must match the index rows
+    with open(CHUNKS_PATH, "w", encoding="utf-8") as f:
+        json.dump(all_chunks, f, indent=2, ensure_ascii=False)
+    print(f"Saved chunks → {CHUNKS_PATH}")
 
     print("✅ Ingestion complete.")
 

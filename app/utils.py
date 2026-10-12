@@ -1,6 +1,9 @@
 import os
 import re
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+
 # ── Regex and cleaning ────────────────────────────────────────
 
 _CITATION_NOISE = re.compile(r"\[\d+(?:[,\-–]\s*\d+)*\]")
@@ -51,7 +54,9 @@ def clean_text(text: str) -> str:
     text = _CITATION_NOISE.sub("", text)
     text = text.replace("-\n", "")
     text = text.replace("\n", " ")
-    text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
+    # Re-split words merged by PDF extraction ("diseaseThe") without breaking
+    # scientific mixed-case terms like ApoE, mRNA, McKhann, PiB.
+    text = re.sub(r"([a-z]{3,})([A-Z][a-z])", r"\1 \2", text)
     text = _EXTRA_WHITESPACE.sub(" ", text)
     return text.strip()
 
@@ -197,8 +202,10 @@ def is_answerable(text: str) -> bool:
 
 # ── Helpers ───────────────────────────────────────────────────
 
-def get_pdf_paths(data_dir: str = "data") -> list[str]:
+def get_pdf_paths(data_dir: str = DATA_DIR) -> list[str]:
     """Return sorted list of PDF file paths."""
+    if not os.path.isdir(data_dir):
+        raise FileNotFoundError(f"Data directory not found: {data_dir} — create it and add PDFs")
     return sorted(
         os.path.join(data_dir, f)
         for f in os.listdir(data_dir)

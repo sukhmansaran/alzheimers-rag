@@ -1,5 +1,8 @@
 """Unit tests for context trimming in app.llm (no Ollama required)."""
-from app.llm import MAX_CHUNK_LEN, MAX_CHUNKS, MAX_CONTEXT_CHARS, trim_context
+import pytest
+
+from app import llm
+from app.llm import MAX_CHUNK_LEN, MAX_CHUNKS, MAX_CONTEXT_CHARS, LLMError, compute_confidence, trim_context
 
 
 def _chunk(i: int, length: int = 3000, score: float = 0.5) -> dict:
@@ -32,3 +35,30 @@ def test_input_chunks_are_not_mutated():
     original = c["text"]
     trim_context([c])
     assert c["text"] == original
+
+
+def test_confidence_uses_raw_similarity_not_weighted_score():
+    # Weak cosine matches inflated by section weights must not look like strong retrieval.
+    hits = [{"score": 0.3, "rerank_score": 0.3 * 1.3 * 2.0, "text": "x"}] * 5
+    confidence = compute_confidence(hits, "unrelated words entirely", [{"text": "abc"}])
+    assert confidence < 0.3
+
+
+def test_non_json_ollama_response_raises_llm_error(monkeypatch):
+    class Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            raise ValueError("not json")
+
+    monkeypatch.setattr(llm.requests, "post", lambda *a, **kw: Resp())
+    with pytest.raises(LLMError, match="non-JSON"):
+        llm._ollama_generate("prompt")
+
+
+def test_ask_returns_the_sources_it_cited(monkeypatch):
+    monkeypatch.setattr(llm, "_ollama_generate", lambda prompt, temperature=0.2: "- Claim [1].")
+    hits = [_chunk(i, score=s) for i, s in enumerate([0.2, 0.9, 0.5])]
+    result = llm.ask("q", hits)
+    assert [c["paper"] for c in result["sources"]] == ["p1.pdf", "p2.pdf", "p0.pdf"]

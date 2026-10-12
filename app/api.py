@@ -109,15 +109,16 @@ def query(req: QueryRequest):
     except LLMError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
 
+    # Numbered to match the [n] citations in the answer
     sources = [
         Source(
-            rank=h.get("rank", i + 1),
+            rank=i + 1,
             paper=h["paper"],
             section=h["section"],
             score=round(h["score"], 4),
             snippet=h.get("snippet", h["text"][:200]),
         )
-        for i, h in enumerate(hits)
+        for i, h in enumerate(result["sources"])
     ]
 
     return QueryResponse(

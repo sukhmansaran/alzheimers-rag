@@ -30,7 +30,9 @@ def test_sources_are_unique_and_sorted(client):
 
 def test_query_success(client, monkeypatch):
     monkeypatch.setattr(api, "search", lambda *a, **kw: [dict(HIT)])
-    monkeypatch.setattr(api, "ask", lambda q, hits: {"answer": "- Finding [1].", "confidence": 0.7, "warnings": []})
+    monkeypatch.setattr(api, "ask", lambda q, hits: {
+        "answer": "- Finding [1].", "confidence": 0.7, "warnings": [], "sources": hits[:1],
+    })
 
     body = client.post("/query", json={"question": "biomarkers?"}).json()
     assert body["answer"] == "- Finding [1]."
@@ -38,6 +40,16 @@ def test_query_success(client, monkeypatch):
     assert body["sources"][0] == {
         "rank": 1, "paper": "paper.pdf", "section": "Results", "score": 0.8123, "snippet": "Plasma p-tau217",
     }
+
+
+def test_sources_are_the_chunks_the_llm_saw(client, monkeypatch):
+    hits = [dict(HIT, paper=f"p{i}.pdf") for i in range(8)]
+    monkeypatch.setattr(api, "search", lambda *a, **kw: hits)
+    monkeypatch.setattr(api, "ask", lambda q, h: {
+        "answer": "x [1][2]", "confidence": 0.5, "warnings": [], "sources": [h[3], h[1]],
+    })
+    sources = client.post("/query", json={"question": "q", "k": 8}).json()["sources"]
+    assert [(s["rank"], s["paper"]) for s in sources] == [(1, "p3.pdf"), (2, "p1.pdf")]
 
 
 def test_query_no_hits_returns_valid_response(client, monkeypatch):

@@ -1,6 +1,6 @@
 """
 Retrieval pipeline:
-  Query → enhance → FAISS top-k → rerank → dedup (embedding) → diversify → final results.
+  Query → enhance → FAISS top-k → rerank → quality filter → dedup (embedding) → diversify.
 """
 import json
 import os
@@ -38,10 +38,20 @@ SKIP_SECTIONS = {"References", "Acknowledgments", "Preamble", "Keywords"}
 
 def load_retriever():
     """Load model, index, and chunks once."""
-    model = SentenceTransformer(EMBED_MODEL, token=HF_TOKEN)
+    for path in (INDEX_PATH, CHUNKS_PATH):
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"{path} not found — run `python -m app.ingest` first")
+
     index = faiss.read_index(INDEX_PATH)
     with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
         chunks = json.load(f)
+    if index.ntotal != len(chunks):
+        raise RuntimeError(
+            f"Index has {index.ntotal} vectors but chunks.json has {len(chunks)} chunks — "
+            "re-run `python -m app.ingest`"
+        )
+
+    model = SentenceTransformer(EMBED_MODEL, token=HF_TOKEN)
     return model, index, chunks
 
 

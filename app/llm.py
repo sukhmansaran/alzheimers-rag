@@ -37,7 +37,10 @@ def _ollama_generate(prompt: str, temperature: float = 0.2) -> str:
     except requests.RequestException as e:
         raise LLMError(f"LLM request failed — {e}") from e
 
-    text = resp.json().get("response", "")
+    try:
+        text = resp.json().get("response", "")
+    except ValueError as e:
+        raise LLMError("LLM returned a non-JSON response") from e
     if not text.strip():
         raise LLMError("LLM returned an empty response")
     return text
@@ -78,7 +81,8 @@ def trim_context(chunks: list[dict]) -> list[dict]:
 def ask(query: str, hits: list[dict]) -> dict:
     """Build numbered-context prompt, generate answer, then run hallucination guard.
 
-    Returns dict with keys: answer, confidence, warnings.
+    Returns dict with keys: answer, confidence, warnings, sources
+    (sources[n-1] is the chunk cited as [n] in the answer).
     Raises LLMError if the Ollama backend fails.
     """
     trimmed = trim_context(hits)
@@ -124,6 +128,7 @@ Answer:"""
         "answer": raw_answer,
         "confidence": confidence,
         "warnings": warnings,
+        "sources": trimmed,
     }
 
 
@@ -174,7 +179,7 @@ def compute_confidence(hits: list[dict], answer: str, chunks_used: list[dict]) -
     """Compute a 0-1 confidence score for the generated answer.
 
     Factors:
-      - retrieval_score: avg rerank/cosine score of top chunks
+      - retrieval_score: avg cosine similarity of top chunks (raw, not section-weighted)
       - citation_score:  how many [N] refs appear in the answer
       - overlap_score:   keyword overlap between answer and context
     """
@@ -182,8 +187,8 @@ def compute_confidence(hits: list[dict], answer: str, chunks_used: list[dict]) -
         return 0.0
 
     # 1. Retrieval quality (avg of top chunk scores, normalized to 0-1)
-    scores = [h.get("rerank_score", h.get("score", 0)) for h in hits[:5]]
-    retrieval_score = min(sum(scores) / max(len(scores), 1), 1.0)
+    scores = [h.get("score", 0.0) for h in hits[:MAX_CHUNKS]]
+    retrieval_score = max(0.0, min(sum(scores) / max(len(scores), 1), 1.0))
 
     # 2. Citation density
     citations = re.findall(r"\[\d+\]", answer)
