@@ -58,7 +58,7 @@ def _faiss_search(query: str, model, index, chunks, k: int) -> list[dict]:
     scores, indices = index.search(q_emb, k)
 
     results = []
-    for score, idx in zip(scores[0], indices[0]):
+    for score, idx in zip(scores[0], indices[0], strict=True):
         if idx < 0 or float(score) < MIN_SCORE:
             continue
         c = dict(chunks[idx])
@@ -125,18 +125,23 @@ def _is_good_hit(text: str) -> bool:
 
 
 def search(query: str, model, index, chunks, k: int = 5) -> list[dict]:
-    """Full pipeline: search → rerank → dedup (embedding) → diversify → quality filter → top-k."""
+    """Full pipeline: search → rerank → quality filter → dedup (embedding) → diversify → top-k.
+
+    Filtering runs before dedup/diversify so a low-quality chunk can't claim a
+    dedup or per-paper slot and then be discarded, taking good chunks with it.
+    """
     raw = _faiss_search(query, model, index, chunks, k=k * 4)
     ranked = rerank(query, raw)
-    deduped = _dedup_by_embedding(ranked, model)
-    diverse = diversify(deduped)
 
     # Score threshold + quality filter
     filtered = [
-        r for r in diverse
+        r for r in ranked
         if r["rerank_score"] >= MIN_SCORE and _is_good_hit(r["text"])
     ]
 
-    for i, r in enumerate(filtered[:k]):
+    deduped = _dedup_by_embedding(filtered, model)
+    diverse = diversify(deduped)
+
+    for i, r in enumerate(diverse[:k]):
         r["rank"] = i + 1
-    return filtered[:k]
+    return diverse[:k]

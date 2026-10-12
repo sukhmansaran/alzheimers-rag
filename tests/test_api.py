@@ -1,0 +1,74 @@
+"""API tests with the retriever and LLM stubbed out (no model, index, or Ollama needed)."""
+import pytest
+from fastapi.testclient import TestClient
+
+from app import api
+from app.llm import LLMError
+
+HIT = {
+    "rank": 1, "paper": "paper.pdf", "section": "Results", "score": 0.81234,
+    "text": "Plasma p-tau217 predicted amyloid positivity.", "snippet": "Plasma p-tau217",
+}
+
+
+@pytest.fixture
+def client(monkeypatch):
+    # Without `with TestClient(...)` the lifespan (which loads the real model) does not run.
+    monkeypatch.setattr(api, "_model", object())
+    monkeypatch.setattr(api, "_index", object())
+    monkeypatch.setattr(api, "_chunks", [{"paper": "b.pdf"}, {"paper": "a.pdf"}, {"paper": "a.pdf"}])
+    return TestClient(api.app)
+
+
+def test_health(client):
+    assert client.get("/health").json() == {"status": "ok", "chunks_loaded": 3}
+
+
+def test_sources_are_unique_and_sorted(client):
+    assert client.get("/sources").json() == {"papers": ["a.pdf", "b.pdf"], "total_chunks": 3}
+
+
+def test_query_success(client, monkeypatch):
+    monkeypatch.setattr(api, "search", lambda *a, **kw: [dict(HIT)])
+    monkeypatch.setattr(api, "ask", lambda q, hits: {"answer": "- Finding [1].", "confidence": 0.7, "warnings": []})
+
+    body = client.post("/query", json={"question": "biomarkers?"}).json()
+    assert body["answer"] == "- Finding [1]."
+    assert body["confidence"] == 0.7
+    assert body["sources"][0] == {
+        "rank": 1, "paper": "paper.pdf", "section": "Results", "score": 0.8123, "snippet": "Plasma p-tau217",
+    }
+
+
+def test_query_no_hits_returns_valid_response(client, monkeypatch):
+    monkeypatch.setattr(api, "search", lambda *a, **kw: [])
+    resp = client.post("/query", json={"question": "anything"})
+    assert resp.status_code == 200
+    assert resp.json()["sources"] == []
+    assert resp.json()["warnings"] == ["no_sources"]
+
+
+def test_query_llm_failure_returns_503(client, monkeypatch):
+    monkeypatch.setattr(api, "search", lambda *a, **kw: [dict(HIT)])
+
+    def fail(q, hits):
+        raise LLMError("Ollama not running")
+
+    monkeypatch.setattr(api, "ask", fail)
+    resp = client.post("/query", json={"question": "biomarkers?"})
+    assert resp.status_code == 503
+    assert "Ollama" in resp.json()["detail"]
+
+
+@pytest.mark.parametrize("payload, status", [
+    ({"question": "   "}, 400),
+    ({"question": "q", "k": 0}, 422),
+    ({"question": "q", "k": 21}, 422),
+])
+def test_query_validation(client, payload, status):
+    assert client.post("/query", json=payload).status_code == status
+
+
+def test_query_when_retriever_not_loaded(monkeypatch):
+    monkeypatch.setattr(api, "_chunks", None)
+    assert TestClient(api.app).post("/query", json={"question": "q"}).status_code == 503

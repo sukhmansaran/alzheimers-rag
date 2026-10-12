@@ -11,8 +11,13 @@ from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
 from app.utils import (
-    chunk_text_weighted, clean_text, detect_sections, get_pdf_paths,
-    is_reference_noise, is_bad_chunk, is_answerable,
+    chunk_text_weighted,
+    clean_text,
+    detect_sections,
+    get_pdf_paths,
+    is_answerable,
+    is_bad_chunk,
+    is_reference_noise,
 )
 
 load_dotenv()

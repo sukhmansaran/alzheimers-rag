@@ -6,8 +6,8 @@ Usage:
 """
 import sys
 
-from app.retrieve import load_retriever, search
 from app.llm import LLMError, ask
+from app.retrieve import load_retriever, search
 
 
 def main():

@@ -107,7 +107,7 @@ def query(req: QueryRequest):
     try:
         result = ask(req.question, hits)
     except LLMError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=503, detail=str(e)) from e
 
     sources = [
         Source(

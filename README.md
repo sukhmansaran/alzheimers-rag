@@ -1,5 +1,7 @@
 # Alzheimer's RAG Research Assistant
 
+[![CI](https://github.com/sukhmansaran/alzheimers-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/sukhmansaran/alzheimers-rag/actions/workflows/ci.yml)
+
 A domain-specific, grounded research assistant for Alzheimer's disease literature. Built with section-aware chunking, FAISS retrieval, reranking, and local LLM inference via Ollama (phi3).
 
 ## Prerequisites
@@ -18,6 +20,7 @@ python -m venv .venv
 
 # 2. Install dependencies
 pip install -r requirements.txt
+# (for development: pip install -r requirements-dev.txt)
 
 # 3. Pull the phi3 model
 ollama pull phi3
@@ -75,8 +78,9 @@ python -m app.evaluate
 # Step 4: Start the API server
 uvicorn app.api:app --reload --port 8000
 
-# Unit tests (no Ollama or index required)
-python -m pytest tests/test_utils.py tests/test_llm.py
+# Tests + lint (no Ollama, PDFs, or index required)
+pytest
+ruff check app tests
 ```
 
 ## API Endpoints
@@ -105,6 +109,15 @@ curl -X POST http://localhost:8000/query \
 - Answers — grounding (sentence-level key-term coverage of the context the LLM saw), valid citations, answer length
 - Safety — refuses medical advice, no fabricated claims
 
+## CI
+
+GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs on every push to `master` and on pull requests:
+
+- **Lint**: `ruff check`
+- **Test**: `pytest` on Python 3.10 and 3.12. The embedding model and Ollama are stubbed, so CI needs no PDFs, index, or LLM.
+
+The full `python -m app.evaluate` suite needs Ollama and the ingested corpus, so run it locally.
+
 ## Project Structure
 
 ```
@@ -122,9 +135,14 @@ curl -X POST http://localhost:8000/query \
 │   ├── audit_data.py   # Data audit utility
 │   ├── test_utils.py   # Unit tests: cleaning, sections, chunking
 │   ├── test_llm.py     # Unit tests: context trimming
+│   ├── test_retrieve.py# Retrieval pipeline (real FAISS, fake embedder)
+│   ├── test_api.py     # API endpoints (retriever + LLM stubbed)
 │   └── eval_results.md # Evaluation results log
 ├── .env                # HF_TOKEN (not tracked)
+├── .github/workflows/ci.yml  # Lint + test pipeline
 ├── requirements.txt
+├── requirements-dev.txt     # pytest, httpx, ruff
+├── pyproject.toml           # pytest + ruff config
 └── .gitignore
 ```
 

@@ -5,6 +5,7 @@ Uses phi3 for generation — runs on 8GB RAM.
 Includes post-generation hallucination guard and confidence scoring.
 """
 import re
+
 import requests
 
 MODEL_NAME = "phi3"
@@ -77,19 +78,14 @@ def trim_context(chunks: list[dict]) -> list[dict]:
 def ask(query: str, hits: list[dict]) -> dict:
     """Build numbered-context prompt, generate answer, then run hallucination guard.
 
-    Returns dict with keys: answer, confidence, warnings
+    Returns dict with keys: answer, confidence, warnings.
+    Raises LLMError if the Ollama backend fails.
     """
     trimmed = trim_context(hits)
 
-    MAX_CHUNK_LEN = 500
     context = "\n\n".join([
-        f"[{i+1}] ({c['paper']} - {c['section']}): {c['text'][:MAX_CHUNK_LEN]}"
-        for i, c in enumerate(trimmed[:5])
-    ])
-
-    sources = "\n".join([
-        f"[{i+1}] {c['paper']} ({c['section']})"
-        for i, c in enumerate(trimmed[:5])
+        f"[{i+1}] ({c['paper']} - {c['section']}): {c['text']}"
+        for i, c in enumerate(trimmed)
     ])
 
     prompt = f"""You are a research assistant summarizing scientific papers about Alzheimer's disease.

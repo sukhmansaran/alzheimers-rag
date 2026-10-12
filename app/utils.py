@@ -1,7 +1,6 @@
 import os
 import re
 
-
 # ── Regex and cleaning ────────────────────────────────────────
 
 _CITATION_NOISE = re.compile(r"\[\d+(?:[,\-–]\s*\d+)*\]")

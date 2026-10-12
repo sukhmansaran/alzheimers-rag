@@ -1,6 +1,9 @@
 """Unit tests for pure text-processing helpers in app.utils."""
 from app.utils import (
-    chunk_text_weighted, clean_text, detect_sections, is_reference_noise,
+    chunk_text_weighted,
+    clean_text,
+    detect_sections,
+    is_reference_noise,
     normalize_section,
 )
 

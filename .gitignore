@@ -55,3 +55,7 @@ models/
 # Distribution
 *.whl
 *.tar.gz
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/

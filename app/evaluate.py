@@ -98,7 +98,7 @@ def is_grounded(answer: str, context_chunks: list[dict]) -> bool:
 def eval_retrieval(model, index, chunks, k=5):
     results = {"total": 0, "good": 0}
 
-    for category, queries in TEST_QUERIES.items():
+    for queries in TEST_QUERIES.values():
         for q in queries:
             results["total"] += 1
             hits = search(q, model, index, chunks, k=k)
@@ -141,7 +141,7 @@ def eval_answers(model, index, chunks, k=5):
         "issues": [],
     }
 
-    for category, queries in TEST_QUERIES.items():
+    for queries in TEST_QUERIES.values():
         for q in queries:
             results["total"] += 1
 

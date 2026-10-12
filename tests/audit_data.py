@@ -9,9 +9,8 @@ import json
 import random
 from collections import Counter
 
-from app.retrieve import load_retriever, search
 from app.ingest import CHUNKS_PATH
-
+from app.retrieve import load_retriever, search
 
 # ─────────────────────────────────────────────────────────────
 # Step 1: Inspect random chunks
