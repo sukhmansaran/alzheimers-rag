@@ -19,6 +19,7 @@ from app.utils import (
     is_answerable,
     is_bad_chunk,
     is_reference_noise,
+    strip_layout_noise,
 )
 
 load_dotenv()
@@ -47,7 +48,7 @@ def extract_text(pdf_path: str) -> str:
 def process_pdf(pdf_path: str) -> list[dict]:
     """Parse one PDF into metadata-rich chunks."""
     paper = os.path.basename(pdf_path)
-    raw = extract_text(pdf_path)
+    raw = strip_layout_noise(extract_text(pdf_path))
     if not raw.strip():
         print(f"  ⚠ No text extracted: {paper}")
         return []

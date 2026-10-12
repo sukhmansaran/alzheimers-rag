@@ -61,6 +61,37 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
+# ── Page layout noise (preprint banners, line numbers) ────────
+
+_PREPRINT_BANNER = re.compile(
+    r"(?:bio|med)Rxiv preprint doi:.{0,600}?(?:without permission\.|International license\.)",
+    re.DOTALL,
+)
+_LEADING_LINE_NUMBER = re.compile(r"^\s*\d{1,4}\s+(?=\S)")
+_TRAILING_LINE_NUMBER = re.compile(r"\s+\d{1,4}\s*$")
+_NUMBER_ONLY_LINE = re.compile(r"^\s*\d{1,4}\s*$")
+LINE_NUMBERED_RATIO = 0.5  # fraction of lines that must carry a number to treat the PDF as line-numbered
+
+
+def strip_layout_noise(text: str) -> str:
+    """Remove per-page preprint banners, margin line numbers, and page-number lines.
+
+    Must run on raw extracted text (before section detection), since headings like
+    "Results 270" are otherwise missed and banners make chunks look like references.
+    Line numbers are only stripped when most lines carry them, so ordinary PDFs whose
+    lines happen to end in a number are left alone.
+    """
+    text = _PREPRINT_BANNER.sub("", text)
+    lines = [ln for ln in text.split("\n") if not _NUMBER_ONLY_LINE.match(ln)]
+    content = [ln for ln in lines if ln.strip()] or [""]
+
+    for pattern in (_TRAILING_LINE_NUMBER, _LEADING_LINE_NUMBER):
+        if sum(bool(pattern.search(ln)) for ln in content) / len(content) > LINE_NUMBERED_RATIO:
+            lines = [pattern.sub("", ln) for ln in lines]
+
+    return "\n".join(lines)
+
+
 # ── Section detection ─────────────────────────────────────────
 
 def detect_sections(text: str) -> list[dict]:

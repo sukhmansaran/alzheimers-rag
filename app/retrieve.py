@@ -129,9 +129,16 @@ def diversify(results: list[dict], max_per_paper: int = 2) -> list[dict]:
     return final
 
 
+MAX_ET_AL = 2  # more citations than this suggests a reference-list fragment
+
+
 def _is_good_hit(text: str) -> bool:
-    """Filter out low-quality hits post-retrieval."""
-    return len(text.split()) > 50 and "et al" not in text.lower()
+    """Filter out low-quality hits post-retrieval.
+
+    A chunk that merely cites prior work ("the Velasco et al. protocol") is kept;
+    only citation-dense chunks are dropped.
+    """
+    return len(text.split()) > 50 and text.lower().count("et al") <= MAX_ET_AL
 
 
 def search(query: str, model, index, chunks, k: int = 5) -> list[dict]:

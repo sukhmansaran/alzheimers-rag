@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/sukhmansaran/alzheimers-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/sukhmansaran/alzheimers-rag/actions/workflows/ci.yml)
 
-A domain-specific, grounded research assistant for Alzheimer's disease literature. Built with section-aware chunking, FAISS retrieval, reranking, and local LLM inference via Ollama (phi3).
+A domain-specific, grounded research assistant for Alzheimer's disease literature. Built with section-aware chunking, FAISS retrieval, reranking, and local LLM inference via Ollama (phi4-mini by default).
 
 ## Prerequisites
 
@@ -22,11 +22,18 @@ python -m venv .venv
 pip install -r requirements.txt
 # (for development: pip install -r requirements-dev.txt)
 
-# 3. Pull the phi3 model
-ollama pull phi3
+# 3. Pull the model
+ollama pull phi4-mini
+```
 
-# 4. Start Ollama (keep running in a separate terminal)
-ollama serve
+Ollama must be running. The desktop app starts it in the background automatically;
+without the app, run `ollama serve` in a separate terminal.
+
+To use a different model or Ollama host, set these in `.env`:
+
+```
+OLLAMA_MODEL=llama3.2:3b
+OLLAMA_URL=http://localhost:11434/api/generate
 ```
 
 ## How It Works
@@ -57,7 +64,7 @@ PDF files (data/)
          ▼
 ┌──────────────────┐
 │  LLM (Ollama)     │  context trimming (4k char budget)
-│  phi3 model       │  → structured prompt (cited bullet points)
+│  phi4-mini        │  → structured prompt (cited bullet points)
 │                   │  → hallucination guard
 │                   │  → confidence scoring
 └──────────────────┘
@@ -126,7 +133,7 @@ The full `python -m app.evaluate` suite needs Ollama and the ingested corpus, so
 ├── app/
 │   ├── ingest.py       # PDF → chunks → embeddings → FAISS index
 │   ├── retrieve.py     # Search → rerank → dedup → diversify
-│   ├── llm.py          # Ollama/phi3 integration, prompt, guards
+│   ├── llm.py          # Ollama integration, prompt, guards
 │   ├── evaluate.py     # Retrieval + answer + safety evaluation
 │   ├── api.py          # FastAPI server
 │   ├── main.py         # CLI entry point
@@ -138,7 +145,7 @@ The full `python -m app.evaluate` suite needs Ollama and the ingested corpus, so
 │   ├── test_retrieve.py# Retrieval pipeline (real FAISS, fake embedder)
 │   ├── test_api.py     # API endpoints (retriever + LLM stubbed)
 │   └── eval_results.md # Evaluation results log
-├── .env                # HF_TOKEN (not tracked)
+├── .env                # HF_TOKEN, OLLAMA_MODEL, OLLAMA_URL (not tracked)
 ├── .github/workflows/ci.yml  # Lint + test pipeline
 ├── requirements.txt
 ├── requirements-dev.txt     # pytest, httpx, ruff

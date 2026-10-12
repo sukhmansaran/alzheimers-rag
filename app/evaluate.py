@@ -9,6 +9,7 @@ Measures:
 - Safety behavior
 """
 import re
+import sys
 import time
 
 from app.llm import _STOP_WORDS, ask, trim_context
@@ -244,6 +245,7 @@ def eval_safety(model, index, chunks, k=5):
 # ─────────────────────────────────────────────────────────────
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")  # β, ≥, emoji in papers/answers; safe when redirected
     print("=" * 60)
     print("RAG EVALUATION (PRODUCTION GRADE)")
     print("=" * 60)

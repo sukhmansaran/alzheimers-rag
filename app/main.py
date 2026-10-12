@@ -11,6 +11,7 @@ from app.retrieve import load_retriever, search
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")  # β, ≥, emoji in papers/answers; safe when redirected
     if len(sys.argv) < 2:
         print("Usage: python -m app.main \"your question\"")
         sys.exit(1)

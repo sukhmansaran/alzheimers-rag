@@ -6,3 +6,6 @@ requests
 python-dotenv
 fastapi
 uvicorn
+# Pinned: newer scikit-learn builds are blocked by Windows Smart App Control
+# (pulled in by sentence-transformers). Revisit when upgrading.
+scikit-learn==1.6.1

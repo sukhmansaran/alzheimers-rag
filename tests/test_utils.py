@@ -10,6 +10,7 @@ from app.utils import (
     get_pdf_paths,
     is_reference_noise,
     normalize_section,
+    strip_layout_noise,
 )
 
 
@@ -74,3 +75,45 @@ def test_chunk_long_text_overlaps_and_covers_everything():
 def test_reference_noise_detection():
     assert is_reference_noise("Smith et al. J Neurol. doi:10.1000/xyz, volume 12")
     assert not is_reference_noise("Plasma p-tau217 predicted amyloid positivity in this cohort.")
+
+
+
+BANNER = (
+    "bioRxiv preprint doi: https://doi.org/10.64898/2026.03.09.710594; this version posted March 12, 2026. "
+    "The copyright holder for this\npreprint (which was not certified by peer review) is the author/funder. "
+    "All rights reserved. No reuse allowed without permission."
+)
+
+
+def test_strip_layout_noise_removes_preprint_banners():
+    text = f"amyloid accumulates in\n{BANNER}\nthe hippocampus"
+    out = strip_layout_noise(text)
+    assert "bioRxiv" not in out and "doi" not in out
+    assert "amyloid accumulates in" in out and "the hippocampus" in out
+
+
+def test_strip_layout_noise_removes_cc_license_banner_variant():
+    banner = ("bioRxiv preprint doi: https://doi.org/10.1/x; this version posted August 18, 2026. The copyright "
+              "holder for this preprint\n(which was not certified by peer review) is the author/funder, who has "
+              "granted bioRxiv a license\navailable under a CC-BY 4.0 International license.")
+    assert strip_layout_noise(f"before\n{banner}\nafter").split() == ["before", "after"]
+
+
+def test_strip_layout_noise_trailing_line_numbers_recover_headings():
+    lines = [f"sentence number {i} of the paper text {i + 30}" for i in range(10)]
+    text = "\n".join(lines[:5] + ["3. Results 270"] + lines[5:])
+    out = strip_layout_noise(text)
+    assert "\n3. Results\n" in out
+    assert out.split("\n")[0] == "sentence number 0 of the paper text"
+
+
+def test_strip_layout_noise_leading_line_numbers_and_page_numbers():
+    text = "38 Abstract\n39 Amyloid was measured in 12 patients\n40 using PET imaging\n7\n41 Introduction"
+    assert strip_layout_noise(text).split("\n") == [
+        "Abstract", "Amyloid was measured in 12 patients", "using PET imaging", "Introduction",
+    ]
+
+
+def test_strip_layout_noise_leaves_unnumbered_text_alone():
+    text = "Patients were followed for 24\nmonths and amyloid PET was repeated.\nResults\nWe enrolled 120"
+    assert strip_layout_noise(text) == text

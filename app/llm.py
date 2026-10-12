@@ -1,15 +1,18 @@
 """
 LLM integration with Ollama (local, CPU-friendly).
-Uses phi3 for generation — runs on 8GB RAM.
+Uses phi4-mini by default (override with OLLAMA_MODEL / OLLAMA_URL in .env) — runs on 8GB RAM.
 
 Includes post-generation hallucination guard and confidence scoring.
 """
+import os
 import re
 
 import requests
+from dotenv import load_dotenv
 
-MODEL_NAME = "phi3"
-OLLAMA_URL = "http://localhost:11434/api/generate"
+load_dotenv()
+MODEL_NAME = os.environ.get("OLLAMA_MODEL", "phi4-mini")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
 MAX_CONTEXT_CHARS = 4000
 MAX_CHUNK_LEN = 500
 MAX_CHUNKS = 5
@@ -31,9 +34,14 @@ def _ollama_generate(prompt: str, temperature: float = 0.2) -> str:
                 "num_predict": 600,
             },
         }, timeout=120)
+        if resp.status_code == 404:
+            raise LLMError(
+                f"Model '{MODEL_NAME}' is not installed in Ollama — run `ollama pull {MODEL_NAME}` "
+                "or set OLLAMA_MODEL in .env to a model you have (see `ollama list`)"
+            )
         resp.raise_for_status()
     except requests.ConnectionError as e:
-        raise LLMError("Ollama not running. Start it with: ollama serve") from e
+        raise LLMError("Ollama is not reachable — open the Ollama app or run `ollama serve`") from e
     except requests.RequestException as e:
         raise LLMError(f"LLM request failed — {e}") from e
 

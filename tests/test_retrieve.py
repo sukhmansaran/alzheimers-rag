@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from app import retrieve
-from app.retrieve import diversify, rerank, search
+from app.retrieve import _is_good_hit, diversify, rerank, search
 
 
 class FakeModel:
@@ -68,7 +68,7 @@ def test_search_drops_duplicates_and_short_or_citation_chunks():
         _chunk("amyloid", "a.pdf"),
         _chunk("amyloid", "b.pdf"),                        # semantic duplicate of the first
         _chunk("amyloid", "c.pdf", n_words=10),            # too short
-        {**_chunk("amyloid", "d.pdf"), "text": "amyloid et al " + " ".join(["w"] * 60)},
+        {**_chunk("amyloid", "d.pdf"), "text": "amyloid " + "Smith et al, " * 3 + " ".join(["w"] * 60)},
     ]
     model, index = _build(chunks)
 
@@ -93,3 +93,9 @@ def test_load_retriever_missing_files_says_to_ingest(tmp_path, monkeypatch):
     monkeypatch.setattr(retrieve, "INDEX_PATH", str(tmp_path / "missing.faiss"))
     with pytest.raises(FileNotFoundError, match="app.ingest"):
         retrieve.load_retriever()
+
+
+def test_single_citation_is_kept_but_citation_dense_chunk_is_dropped():
+    body = " ".join(["w"] * 60)
+    assert _is_good_hit(f"We adopted the Velasco et al. protocol. {body}")
+    assert not _is_good_hit(f"Smith et al. Jones et al. Lee et al. {body}")

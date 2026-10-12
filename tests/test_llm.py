@@ -46,6 +46,8 @@ def test_confidence_uses_raw_similarity_not_weighted_score():
 
 def test_non_json_ollama_response_raises_llm_error(monkeypatch):
     class Resp:
+        status_code = 200
+
         def raise_for_status(self):
             pass
 
@@ -62,3 +64,12 @@ def test_ask_returns_the_sources_it_cited(monkeypatch):
     hits = [_chunk(i, score=s) for i, s in enumerate([0.2, 0.9, 0.5])]
     result = llm.ask("q", hits)
     assert [c["paper"] for c in result["sources"]] == ["p1.pdf", "p2.pdf", "p0.pdf"]
+
+
+def test_missing_model_gives_actionable_error(monkeypatch):
+    class Resp:
+        status_code = 404
+
+    monkeypatch.setattr(llm.requests, "post", lambda *a, **kw: Resp())
+    with pytest.raises(LLMError, match="ollama pull"):
+        llm._ollama_generate("prompt")
