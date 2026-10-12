@@ -36,9 +36,6 @@ data/
 processed/
 !processed/.gitkeep
 
-# Tests (eval results, audit scripts)
-tests/
-
 # FAISS index
 *.faiss
 *.index

@@ -10,6 +10,12 @@ import requests
 MODEL_NAME = "phi3"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MAX_CONTEXT_CHARS = 4000
+MAX_CHUNK_LEN = 500
+MAX_CHUNKS = 5
+
+
+class LLMError(RuntimeError):
+    """Raised when the Ollama backend is unreachable or returns an error."""
 
 
 def _ollama_generate(prompt: str, temperature: float = 0.2) -> str:
@@ -25,15 +31,23 @@ def _ollama_generate(prompt: str, temperature: float = 0.2) -> str:
             },
         }, timeout=120)
         resp.raise_for_status()
-        return resp.json().get("response", "Error: Empty response")
-    except requests.ConnectionError:
-        return "Error: Ollama not running. Start it with: ollama serve"
-    except Exception as e:
-        return f"Error: LLM request failed — {e}"
+    except requests.ConnectionError as e:
+        raise LLMError("Ollama not running. Start it with: ollama serve") from e
+    except requests.RequestException as e:
+        raise LLMError(f"LLM request failed — {e}") from e
+
+    text = resp.json().get("response", "")
+    if not text.strip():
+        raise LLMError("LLM returned an empty response")
+    return text
 
 
 def trim_context(chunks: list[dict]) -> list[dict]:
-    """Select highest-value chunks that fit within the context budget."""
+    """Select highest-value chunks that fit within the context budget.
+
+    Each chunk's text is truncated to MAX_CHUNK_LEN *before* budgeting, so the
+    budget reflects what is actually sent to the model.
+    """
     ranked = sorted(
         chunks,
         key=lambda x: x.get("rerank_score", x.get("score", 0)),
@@ -45,15 +59,17 @@ def trim_context(chunks: list[dict]) -> list[dict]:
     selected = []
 
     for c in ranked:
+        if len(selected) >= MAX_CHUNKS:
+            break
         fingerprint = c["text"][:200]
         if fingerprint in seen_texts:
             continue
-        length = len(c["text"])
-        if total + length > MAX_CONTEXT_CHARS:
+        text = c["text"][:MAX_CHUNK_LEN]
+        if total + len(text) > MAX_CONTEXT_CHARS:
             continue
         seen_texts.add(fingerprint)
-        selected.append(c)
-        total += length
+        selected.append({**c, "text": text})
+        total += len(text)
 
     return selected
 

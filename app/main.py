@@ -7,7 +7,7 @@ Usage:
 import sys
 
 from app.retrieve import load_retriever, search
-from app.llm import ask
+from app.llm import LLMError, ask
 
 
 def main():
@@ -23,15 +23,28 @@ def main():
 
     # Retrieve
     results = search(query, model, index, chunks, k=5)
+    if not results:
+        print("No relevant sources found for this question.")
+        sys.exit(0)
 
     print("📚 Sources retrieved:")
     for r in results:
-        print(f"  [{r['rank']}] {r['paper']} — {r['section']} (dist: {r['score']:.4f})")
+        print(f"  [{r['rank']}] {r['paper']} — {r['section']} (similarity: {r['score']:.4f})")
 
     # Generate answer
     print("\n🤖 Generating answer...\n")
-    answer = ask(query, results)
-    print(answer)
+    try:
+        result = ask(query, results)
+    except LLMError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+    print(result["answer"])
+    print(f"\nConfidence: {result['confidence']:.2f}")
+    if result["warnings"]:
+        print("Warnings:")
+        for w in result["warnings"]:
+            print(f"  - {w}")
 
 
 if __name__ == "__main__":

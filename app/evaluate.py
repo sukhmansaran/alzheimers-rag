@@ -3,15 +3,15 @@ Production-grade RAG evaluation pipeline.
 
 Measures:
 - Retrieval quality
-- Grounding (LLM judge)
-- Citation correctness
-- Answer quality
+- Grounding (heuristic: key-term coverage of answer sentences in the context)
+- Citation presence and validity
+- Answer length
 - Safety behavior
 """
 import re
 import time
 
-from app.llm import ask
+from app.llm import _STOP_WORDS, ask, trim_context
 from app.retrieve import load_retriever, search
 
 # ─────────────────────────────────────────────────────────────
@@ -65,15 +65,30 @@ SAFETY_DANGEROUS_STOP = re.compile(
 # HELPERS
 # ─────────────────────────────────────────────────────────────
 
-def build_context(hits: list[dict]) -> str:
-    return "\n\n".join([
-        f"[{i+1}] ({h['paper']} - {h['section']}): {h['text']}"
-        for i, h in enumerate(hits)
-    ])
+GROUNDED_SENTENCE_COVERAGE = 0.6   # key-term coverage for a sentence to count as supported
+GROUNDED_ANSWER_RATIO = 0.7        # fraction of sentences that must be supported
 
 
-def extract_citations(answer: str) -> list[str]:
-    return re.findall(r"\[\d+\]", answer)
+def extract_citations(answer: str) -> list[int]:
+    return [int(n) for n in re.findall(r"\[(\d+)\]", answer)]
+
+
+def is_grounded(answer: str, context_chunks: list[dict]) -> bool:
+    """Answer is grounded if most of its substantive sentences are supported by the context."""
+    corpus = " ".join(c["text"].lower() for c in context_chunks)
+    supported = total = 0
+    for sent in re.split(r"[.!?\n]", answer):
+        terms = [
+            w.lower() for w in re.findall(r"\b[A-Za-z]{4,}\b", sent)
+            if w.lower() not in _STOP_WORDS
+        ]
+        if len(terms) < 3:
+            continue
+        total += 1
+        coverage = sum(1 for t in terms if t in corpus) / len(terms)
+        if coverage >= GROUNDED_SENTENCE_COVERAGE:
+            supported += 1
+    return total > 0 and supported / total >= GROUNDED_ANSWER_RATIO
 
 
 # ─────────────────────────────────────────────────────────────
@@ -113,7 +128,7 @@ def eval_retrieval(model, index, chunks, k=5):
 
 
 # ─────────────────────────────────────────────────────────────
-# ANSWER EVAL (LLM JUDGE)
+# ANSWER EVAL
 # ─────────────────────────────────────────────────────────────
 
 def eval_answers(model, index, chunks, k=5):
@@ -122,6 +137,7 @@ def eval_answers(model, index, chunks, k=5):
         "grounded": 0,
         "citations": 0,
         "good_length": 0,
+        "all_pass": 0,
         "issues": [],
     }
 
@@ -130,24 +146,17 @@ def eval_answers(model, index, chunks, k=5):
             results["total"] += 1
 
             hits = search(q, model, index, chunks, k=k)
-            context = build_context(hits)
+            context_chunks = trim_context(hits)  # exactly what the LLM saw
             result = ask(q, hits)
             answer = result["answer"]
 
-            # ── Citation check ──
+            # ── Citation check (present and pointing at a real source) ──
             citations = extract_citations(answer)
+            invalid = [n for n in citations if not 1 <= n <= len(context_chunks)]
+            has_citations = len(citations) >= 1 and not invalid
 
-            # ── Grounding (heuristic — check if answer references context) ──
-            paper_names = {h["paper"] for h in hits}
-            answer_lower = answer.lower()
-            context_overlap = sum(
-                1 for h in hits
-                if any(phrase in answer_lower for phrase in h["text"][:100].lower().split(". "))
-            )
-            has_numbered_refs = len(citations) > 0
-            grounded = context_overlap >= 1 or has_numbered_refs
-
-            has_citations = len(citations) >= 1
+            # ── Grounding ──
+            grounded = is_grounded(answer, context_chunks)
 
             # ── Length check ──
             length_ok = 80 <= len(answer) <= 1200
@@ -155,8 +164,10 @@ def eval_answers(model, index, chunks, k=5):
             issues = []
             if not grounded:
                 issues.append("not_grounded")
-            if not has_citations:
+            if not citations:
                 issues.append("missing_citations")
+            elif invalid:
+                issues.append(f"invalid_citations:{invalid}")
             if not length_ok:
                 issues.append("bad_length")
 
@@ -173,8 +184,10 @@ def eval_answers(model, index, chunks, k=5):
                     "issues": issues,
                 })
             else:
-                results["grounded"] += 1
+                results["all_pass"] += 1
 
+            if grounded:
+                results["grounded"] += 1
             if has_citations:
                 results["citations"] += 1
             if length_ok:
@@ -266,6 +279,8 @@ def main():
     print(f"Retrieval: {ret['good']}/{ret['total']}")
     print(f"Grounded:  {ans['grounded']}/{ans['total']}")
     print(f"Citations: {ans['citations']}/{ans['total']}")
+    print(f"Length OK: {ans['good_length']}/{ans['total']}")
+    print(f"All pass:  {ans['all_pass']}/{ans['total']}")
     print(f"Safety:    {saf['safe']}/{saf['total']}")
 
     print(f"\nOverall: {total}/{max_total} ({100 * total / max_total:.1f}%)")

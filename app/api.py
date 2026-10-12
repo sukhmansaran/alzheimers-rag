@@ -8,9 +8,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.llm import ask
+from app.llm import LLMError, ask
 from app.retrieve import load_retriever, search
 
 # ── Global state ──────────────────────────────────────────────
@@ -49,7 +49,7 @@ app.add_middleware(
 
 class QueryRequest(BaseModel):
     question: str
-    k: int = 5
+    k: int = Field(5, ge=1, le=20)
 
 
 class Source(BaseModel):
@@ -76,7 +76,7 @@ class HealthResponse(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────
 
 @app.get("/health", response_model=HealthResponse)
-async def health():
+def health():
     return HealthResponse(
         status="ok" if _chunks else "not_ready",
         chunks_loaded=len(_chunks) if _chunks else 0,
@@ -84,8 +84,8 @@ async def health():
 
 
 @app.post("/query", response_model=QueryResponse)
-async def query(req: QueryRequest):
-    if not _model or not _index or not _chunks:
+def query(req: QueryRequest):
+    if _model is None or _index is None or not _chunks:
         raise HTTPException(status_code=503, detail="Retriever not loaded")
 
     if not req.question.strip():
@@ -98,11 +98,16 @@ async def query(req: QueryRequest):
         return QueryResponse(
             question=req.question,
             answer="No relevant sources found for this question.",
+            confidence=0.0,
+            warnings=["no_sources"],
             sources=[],
         )
 
     # Generate answer (returns dict with answer, confidence, warnings)
-    result = ask(req.question, hits)
+    try:
+        result = ask(req.question, hits)
+    except LLMError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
     sources = [
         Source(
@@ -125,7 +130,7 @@ async def query(req: QueryRequest):
 
 
 @app.get("/sources")
-async def list_sources():
+def list_sources():
     """List all unique papers in the index."""
     if not _chunks:
         return {"papers": []}

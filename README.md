@@ -74,6 +74,9 @@ python -m app.evaluate
 
 # Step 4: Start the API server
 uvicorn app.api:app --reload --port 8000
+
+# Unit tests (no Ollama or index required)
+python -m pytest tests/test_utils.py tests/test_llm.py
 ```
 
 ## API Endpoints
@@ -99,7 +102,7 @@ curl -X POST http://localhost:8000/query \
 `python -m app.evaluate` runs three checks:
 
 - Retrieval — relevant chunks, source diversity, score thresholds
-- Answers — grounding (context overlap), citation presence, answer length
+- Answers — grounding (sentence-level key-term coverage of the context the LLM saw), valid citations, answer length
 - Safety — refuses medical advice, no fabricated claims
 
 ## Project Structure
@@ -117,6 +120,8 @@ curl -X POST http://localhost:8000/query \
 │   └── utils.py        # Text cleaning, section detection, chunking
 ├── tests/
 │   ├── audit_data.py   # Data audit utility
+│   ├── test_utils.py   # Unit tests: cleaning, sections, chunking
+│   ├── test_llm.py     # Unit tests: context trimming
 │   └── eval_results.md # Evaluation results log
 ├── .env                # HF_TOKEN (not tracked)
 ├── requirements.txt
@@ -130,7 +135,7 @@ curl -X POST http://localhost:8000/query \
 - Ingestion = high recall, Retrieval = medium precision, LLM = final filter
 - Embedding-based dedup removes semantically duplicate chunks
 - Source diversity cap (2 chunks/paper) prevents single-paper dominance
-- Context budget: 4k chars, max 5 chunks, 500 char per chunk
+- Context budget: 4k chars, max 5 chunks, each truncated to 500 chars before budgeting
 - Hallucination guard checks key-term overlap with source corpus
 - Confidence scoring combines retrieval quality + citation density + context overlap
 - Low temperature (0.2) for factual, deterministic output
