@@ -35,13 +35,12 @@ def main():
     # Generate answer
     print("\n🤖 Generating answer...\n")
     try:
-        result = ask(query, results)
+        result = ask(query, results, on_token=lambda piece: print(piece, end="", flush=True))
     except LLMError as e:
-        print(f"Error: {e}")
+        print(f"\nError: {e}")
         sys.exit(1)
 
-    print(result["answer"])
-    print(f"\nConfidence: {result['confidence']:.2f}")
+    print(f"\n\nConfidence: {result['confidence']:.2f}")
     if result["warnings"]:
         print("Warnings:")
         for w in result["warnings"]:

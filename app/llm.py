@@ -4,8 +4,10 @@ Uses phi4-mini by default (override with OLLAMA_MODEL / OLLAMA_URL in .env) — 
 
 Includes post-generation hallucination guard and confidence scoring.
 """
+import json
 import os
 import re
+from collections.abc import Callable, Iterator
 
 import requests
 from dotenv import load_dotenv
@@ -27,18 +29,18 @@ class LLMError(RuntimeError):
     """Raised when the Ollama backend is unreachable or returns an error."""
 
 
-def _ollama_generate(prompt: str, temperature: float = 0.2) -> str:
-    """Send prompt to Ollama and return response text."""
+def _ollama_request(prompt: str, temperature: float, stream: bool) -> requests.Response:
+    """POST to Ollama; translate connection/HTTP failures into LLMError."""
     try:
         resp = requests.post(OLLAMA_URL, json={
             "model": MODEL_NAME,
             "prompt": prompt,
-            "stream": False,
+            "stream": stream,
             "options": {
                 "temperature": temperature,
                 "num_predict": 600,
             },
-        }, timeout=120)
+        }, timeout=120, stream=stream)
         if resp.status_code == 404:
             raise LLMError(
                 f"Model '{MODEL_NAME}' is not installed in Ollama — run `ollama pull {MODEL_NAME}` "
@@ -49,7 +51,12 @@ def _ollama_generate(prompt: str, temperature: float = 0.2) -> str:
         raise LLMError("Ollama is not reachable — open the Ollama app or run `ollama serve`") from e
     except requests.RequestException as e:
         raise LLMError(f"LLM request failed — {e}") from e
+    return resp
 
+
+def _ollama_generate(prompt: str, temperature: float = 0.2) -> str:
+    """Send prompt to Ollama and return the full response text."""
+    resp = _ollama_request(prompt, temperature, stream=False)
     try:
         text = resp.json().get("response", "")
     except ValueError as e:
@@ -57,6 +64,34 @@ def _ollama_generate(prompt: str, temperature: float = 0.2) -> str:
     if not text.strip():
         raise LLMError("LLM returned an empty response")
     return text
+
+
+def stream_generate(prompt: str, temperature: float = 0.2) -> Iterator[str]:
+    """Yield response text pieces from Ollama as they are generated."""
+    resp = _ollama_request(prompt, temperature, stream=True)
+    produced = False
+    try:
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except ValueError as e:
+                raise LLMError("LLM returned a non-JSON response") from e
+            if data.get("error"):
+                raise LLMError(f"LLM error — {data['error']}")
+            piece = data.get("response", "")
+            if piece:
+                produced = True
+                yield piece
+            if data.get("done"):
+                break
+    except requests.RequestException as e:
+        raise LLMError(f"LLM stream interrupted — {e}") from e
+    finally:
+        resp.close()
+    if not produced:
+        raise LLMError("LLM returned an empty response")
 
 
 def trim_context(chunks: list[dict]) -> list[dict]:
@@ -91,13 +126,8 @@ def trim_context(chunks: list[dict]) -> list[dict]:
     return selected
 
 
-def ask(query: str, hits: list[dict]) -> dict:
-    """Build numbered-context prompt, generate answer, then run hallucination guard.
-
-    Returns dict with keys: answer, confidence, warnings, sources
-    (sources[n-1] is the chunk cited as [n] in the answer).
-    Raises LLMError if the Ollama backend fails.
-    """
+def build_prompt(query: str, hits: list[dict]) -> tuple[str, list[dict]]:
+    """Return (prompt, sources) where sources[n-1] is the excerpt numbered [n] in the prompt."""
     trimmed = trim_context(hits)
 
     context = "\n\n".join([
@@ -126,23 +156,44 @@ Example format:
 - Early detection using CSF biomarkers shows promise [1].
 
 Answer:"""
+    return prompt, trimmed
 
-    raw_answer = _ollama_generate(prompt, temperature=0.2)
 
-    # Post-generation checks
-    warnings = check_hallucination(raw_answer, trimmed)
-    confidence = compute_confidence(hits, raw_answer, trimmed)
+def finalize_answer(answer: str, hits: list[dict], sources: list[dict]) -> dict:
+    """Run post-generation checks; returns dict with answer, confidence, warnings, sources."""
+    warnings = check_hallucination(answer, sources)
+    confidence = compute_confidence(hits, answer, sources)
 
     # Flag low-confidence answers
     if confidence < 0.3:
         warnings.append("low_confidence")
 
     return {
-        "answer": raw_answer,
+        "answer": answer,
         "confidence": confidence,
         "warnings": warnings,
-        "sources": trimmed,
+        "sources": sources,
     }
+
+
+def ask(query: str, hits: list[dict], on_token: Callable[[str], None] | None = None) -> dict:
+    """Build numbered-context prompt, generate answer, then run hallucination guard.
+
+    With on_token, the answer is streamed and each piece is passed to it as it arrives.
+    Returns dict with keys: answer, confidence, warnings, sources
+    (sources[n-1] is the chunk cited as [n] in the answer).
+    Raises LLMError if the Ollama backend fails.
+    """
+    prompt, sources = build_prompt(query, hits)
+    if on_token is None:
+        answer = _ollama_generate(prompt, temperature=0.2)
+    else:
+        pieces = []
+        for piece in stream_generate(prompt, temperature=0.2):
+            on_token(piece)
+            pieces.append(piece)
+        answer = "".join(pieces)
+    return finalize_answer(answer, hits, sources)
 
 
 def check_hallucination(answer: str, chunks: list[dict]) -> list[str]:

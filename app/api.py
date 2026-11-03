@@ -8,16 +8,18 @@ Security settings (.env):
     API_KEY       If set, /query and /sources require header `X-API-Key: <API_KEY>`.
     CORS_ORIGINS  Comma-separated allowed browser origins. Default: localhost only.
 """
+import json
 import os
 import secrets
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Security
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
-from app.llm import DISCLAIMER, LLMError, ask
+from app.llm import DISCLAIMER, LLMError, ask, build_prompt, finalize_answer, stream_generate
 from app.retrieve import load_retriever, search
 
 # ── Global state ──────────────────────────────────────────────
@@ -77,6 +79,7 @@ class Source(BaseModel):
     section: str
     score: float
     snippet: str
+    excerpt: str  # exact text the LLM was given for this source
 
 
 class QueryResponse(BaseModel):
@@ -103,21 +106,40 @@ def health():
     )
 
 
-@app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_api_key)])
-def query(req: QueryRequest):
+NO_SOURCES_ANSWER = "No relevant sources found for this question."
+
+
+def _retrieve(req: QueryRequest) -> list[dict]:
     if _model is None or _index is None or not _chunks:
         raise HTTPException(status_code=503, detail="Retriever not loaded")
-
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
+    return search(req.question, _model, _index, _chunks, k=req.k)
 
-    # Retrieve
-    hits = search(req.question, _model, _index, _chunks, k=req.k)
+
+def _to_sources(chunks_used: list[dict]) -> list[Source]:
+    """Numbered to match the [n] citations in the answer."""
+    return [
+        Source(
+            rank=i + 1,
+            paper=h["paper"],
+            section=h["section"],
+            score=round(h["score"], 4),
+            snippet=h.get("snippet", h["text"][:200]),
+            excerpt=h["text"],
+        )
+        for i, h in enumerate(chunks_used)
+    ]
+
+
+@app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_api_key)])
+def query(req: QueryRequest):
+    hits = _retrieve(req)
 
     if not hits:
         return QueryResponse(
             question=req.question,
-            answer="No relevant sources found for this question.",
+            answer=NO_SOURCES_ANSWER,
             confidence=0.0,
             warnings=["no_sources"],
             sources=[],
@@ -129,25 +151,57 @@ def query(req: QueryRequest):
     except LLMError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
 
-    # Numbered to match the [n] citations in the answer
-    sources = [
-        Source(
-            rank=i + 1,
-            paper=h["paper"],
-            section=h["section"],
-            score=round(h["score"], 4),
-            snippet=h.get("snippet", h["text"][:200]),
-        )
-        for i, h in enumerate(result["sources"])
-    ]
-
     return QueryResponse(
         question=req.question,
         answer=result["answer"],
         confidence=result["confidence"],
         warnings=result["warnings"],
-        sources=sources,
+        sources=_to_sources(result["sources"]),
     )
+
+
+@app.post("/query/stream", dependencies=[Depends(require_api_key)])
+def query_stream(req: QueryRequest):
+    """Stream the answer as newline-delimited JSON events:
+
+    {"type": "sources", "sources": [...]}            once, before generation
+    {"type": "token", "text": "..."}                 repeated
+    {"type": "done", "confidence", "warnings", "disclaimer"}
+    {"type": "error", "detail": "..."}               instead of "done" if the LLM fails
+    """
+    hits = _retrieve(req)
+
+    def line(event: dict) -> str:
+        return json.dumps(event, ensure_ascii=False) + "\n"
+
+    def events():
+        if not hits:
+            yield line({"type": "sources", "sources": []})
+            yield line({"type": "token", "text": NO_SOURCES_ANSWER})
+            yield line({"type": "done", "confidence": 0.0, "warnings": ["no_sources"], "disclaimer": DISCLAIMER})
+            return
+
+        prompt, used = build_prompt(req.question, hits)
+        yield line({"type": "sources", "sources": [s.model_dump() for s in _to_sources(used)]})
+
+        pieces = []
+        try:
+            for piece in stream_generate(prompt):
+                pieces.append(piece)
+                yield line({"type": "token", "text": piece})
+        except LLMError as e:
+            yield line({"type": "error", "detail": str(e)})
+            return
+
+        result = finalize_answer("".join(pieces), hits, used)
+        yield line({
+            "type": "done",
+            "confidence": result["confidence"],
+            "warnings": result["warnings"],
+            "disclaimer": DISCLAIMER,
+        })
+
+    return StreamingResponse(events(), media_type="application/x-ndjson")
 
 
 @app.get("/sources", dependencies=[Depends(require_api_key)])

@@ -73,3 +73,58 @@ def test_missing_model_gives_actionable_error(monkeypatch):
     monkeypatch.setattr(llm.requests, "post", lambda *a, **kw: Resp())
     with pytest.raises(LLMError, match="ollama pull"):
         llm._ollama_generate("prompt")
+
+
+class _StreamResp:
+    status_code = 200
+
+    def __init__(self, lines):
+        self.lines = lines
+        self.closed = False
+
+    def raise_for_status(self):
+        pass
+
+    def iter_lines(self):
+        yield from self.lines
+
+    def close(self):
+        self.closed = True
+
+
+def test_stream_generate_yields_pieces_until_done(monkeypatch):
+    resp = _StreamResp([
+        b'{"response": "- APOE ", "done": false}',
+        b"",
+        b'{"response": "raises risk [1].", "done": false}',
+        b'{"response": "", "done": true}',
+        b'{"response": "ignored after done", "done": false}',
+    ])
+    monkeypatch.setattr(llm.requests, "post", lambda *a, **kw: resp)
+    assert list(llm.stream_generate("prompt")) == ["- APOE ", "raises risk [1]."]
+    assert resp.closed
+
+
+def test_stream_generate_surfaces_ollama_error_line(monkeypatch):
+    monkeypatch.setattr(llm.requests, "post", lambda *a, **kw: _StreamResp([b'{"error": "model crashed"}']))
+    with pytest.raises(LLMError, match="model crashed"):
+        list(llm.stream_generate("prompt"))
+
+
+def test_stream_generate_empty_response_raises(monkeypatch):
+    monkeypatch.setattr(llm.requests, "post", lambda *a, **kw: _StreamResp([b'{"response": "", "done": true}']))
+    with pytest.raises(LLMError, match="empty"):
+        list(llm.stream_generate("prompt"))
+
+
+def test_ask_streaming_passes_tokens_and_matches_non_streaming(monkeypatch):
+    hits = [_chunk(i, score=s) for i, s in enumerate([0.2, 0.9, 0.5])]
+    monkeypatch.setattr(llm, "stream_generate", lambda prompt, temperature=0.2: iter(["- Claim ", "[1]."]))
+    seen = []
+    streamed = llm.ask("q", hits, on_token=seen.append)
+
+    monkeypatch.setattr(llm, "_ollama_generate", lambda prompt, temperature=0.2: "- Claim [1].")
+    plain = llm.ask("q", hits)
+
+    assert seen == ["- Claim ", "[1]."]
+    assert streamed == plain

@@ -99,6 +99,7 @@ Once the server is running:
 |--------|-----------|--------------------------------|
 | GET    | /health   | Check if retriever is loaded   |
 | POST   | /query    | Ask a question (JSON body)     |
+| POST   | /query/stream | Same, streamed as newline-delimited JSON (sources, tokens, done) |
 | GET    | /sources  | List all indexed papers        |
 | GET    | /docs     | Interactive Swagger UI         |
 

@@ -39,6 +39,7 @@ def test_query_success(client, monkeypatch):
     assert body["confidence"] == 0.7
     assert body["sources"][0] == {
         "rank": 1, "paper": "paper.pdf", "section": "Results", "score": 0.8123, "snippet": "Plasma p-tau217",
+        "excerpt": "Plasma p-tau217 predicted amyloid positivity.",
     }
 
 
@@ -115,3 +116,50 @@ def test_cors_allows_localhost_but_not_other_origins(client):
 
     assert preflight("http://localhost:3000") == "http://localhost:3000"
     assert preflight("https://evil.example.com") is None
+
+
+def _events(resp):
+    import json
+    return [json.loads(line) for line in resp.text.splitlines() if line.strip()]
+
+
+def test_query_stream_sends_sources_tokens_then_done(client, monkeypatch):
+    monkeypatch.setattr(api, "search", lambda *a, **kw: [dict(HIT, rerank_score=1.0)])
+    monkeypatch.setattr(api, "stream_generate", lambda prompt: iter(["- Plasma p-tau217 ", "predicted amyloid [1]."]))
+
+    resp = client.post("/query/stream", json={"question": "biomarkers?"})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/x-ndjson")
+    events = _events(resp)
+
+    assert [e["type"] for e in events] == ["sources", "token", "token", "done"]
+    assert events[0]["sources"][0]["paper"] == "paper.pdf"
+    assert events[0]["sources"][0]["excerpt"] == HIT["text"]
+    assert "".join(e["text"] for e in events if e["type"] == "token") == "- Plasma p-tau217 predicted amyloid [1]."
+    assert 0 <= events[-1]["confidence"] <= 1
+    assert "not medical advice" in events[-1]["disclaimer"]
+
+
+def test_query_stream_reports_llm_failure_as_error_event(client, monkeypatch):
+    monkeypatch.setattr(api, "search", lambda *a, **kw: [dict(HIT, rerank_score=1.0)])
+
+    def fail(prompt):
+        raise LLMError("Ollama is not reachable")
+        yield  # pragma: no cover - makes this a generator
+
+    monkeypatch.setattr(api, "stream_generate", fail)
+    events = _events(client.post("/query/stream", json={"question": "q"}))
+    assert [e["type"] for e in events] == ["sources", "error"]
+    assert "Ollama" in events[-1]["detail"]
+
+
+def test_query_stream_no_sources(client, monkeypatch):
+    monkeypatch.setattr(api, "search", lambda *a, **kw: [])
+    events = _events(client.post("/query/stream", json={"question": "capital of France?"}))
+    assert [e["type"] for e in events] == ["sources", "token", "done"]
+    assert events[-1]["warnings"] == ["no_sources"]
+
+
+def test_query_stream_requires_api_key_when_configured(client, monkeypatch):
+    monkeypatch.setenv("API_KEY", "s3cret")
+    assert client.post("/query/stream", json={"question": "q"}).status_code == 401
