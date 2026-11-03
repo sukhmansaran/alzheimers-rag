@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Security
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
@@ -97,6 +97,15 @@ class HealthResponse(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────
+
+_INDEX_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html")
+
+
+@app.get("/", include_in_schema=False)
+def web_ui():
+    """Single-page UI; it calls /query/stream (which enforces API_KEY if set)."""
+    return FileResponse(_INDEX_HTML, media_type="text/html")
+
 
 @app.get("/health", response_model=HealthResponse)
 def health():

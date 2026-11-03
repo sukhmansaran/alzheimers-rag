@@ -83,7 +83,7 @@ python -m app.main "What biomarkers are used for early detection of Alzheimer's?
 # Step 3: Run evaluation suite
 python -m app.evaluate
 
-# Step 4: Start the API server
+# Step 4: Start the API server + web UI, then open http://localhost:8000
 uvicorn app.api:app --reload --port 8000
 
 # Tests + lint (no Ollama, PDFs, or index required)
@@ -91,12 +91,20 @@ pytest
 ruff check app tests
 ```
 
+## Web UI
+
+Open http://localhost:8000 once the server is running. Answers stream in as they are generated; each `[n]`
+citation is clickable and highlights the exact excerpt the model was given, so you can check every claim.
+Confidence, guard warnings, and the disclaimer are shown under the answer. Off-topic questions get
+"no relevant sources" rather than a made-up answer.
+
 ## API Endpoints
 
 Once the server is running:
 
 | Method | Endpoint   | Description                    |
 |--------|-----------|--------------------------------|
+| GET    | /         | Web UI                         |
 | GET    | /health   | Check if retriever is loaded   |
 | POST   | /query    | Ask a question (JSON body)     |
 | POST   | /query/stream | Same, streamed as newline-delimited JSON (sources, tokens, done) |
@@ -153,7 +161,8 @@ The full `python -m app.evaluate` suite needs Ollama and the ingested corpus, so
 │   ├── eval_queries.json # Labelled eval questions
 │   ├── llm.py          # Ollama integration, prompt, guards
 │   ├── evaluate.py     # Labelled retrieval + answer + safety evaluation
-│   ├── api.py          # FastAPI server
+│   ├── api.py          # FastAPI server (+ serves the web UI)
+│   ├── static/index.html # Web UI (single page, no build step)
 │   ├── main.py         # CLI entry point
 │   └── utils.py        # Text cleaning, section detection, chunking
 ├── tests/

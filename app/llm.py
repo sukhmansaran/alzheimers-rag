@@ -218,6 +218,9 @@ def check_hallucination(answer: str, chunks: list[dict]) -> list[str]:
         sent = sent.strip()
         if not sent or len(sent.split()) < 5:
             continue
+        # The prompt tells the model to add this safety line; it is not a factual claim.
+        if "healthcare professional" in sent.lower():
+            continue
 
         # Extract key terms (words 4+ chars, not stopwords)
         key_terms = [

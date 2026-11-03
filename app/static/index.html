@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alzheimer's Research Assistant</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1c1c1a; --muted: #66665f; --border: #e2e1dc;
+    --accent: #3b5bdb; --accent-soft: #e8edff; --warn-bg: #fff6e0; --warn-text: #7a5300;
+    --err-bg: #fdecec; --err-text: #9b1c1c; --mark: #fff1a8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #1f1f1c; --text: #ecece8; --muted: #a3a39b; --border: #34342f;
+      --accent: #8ea6ff; --accent-soft: #252c47; --warn-bg: #3a2f12; --warn-text: #f2d48a;
+      --err-bg: #3d1a1a; --err-text: #f4b4b4; --mark: #5a4c12;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  #q { flex: 1 1 320px; padding: 12px 14px; font: inherit; color: var(--text); background: var(--panel);
+       border: 1px solid var(--border); border-radius: 8px; }
+  button { font: inherit; cursor: pointer; border-radius: 8px; }
+  #ask { padding: 12px 20px; background: var(--accent); color: #fff; border: 0; font-weight: 600; }
+  #ask:disabled { opacity: .6; cursor: default; }
+  details.settings { margin-top: 10px; color: var(--muted); font-size: .9rem; }
+  details.settings input { margin-left: 6px; padding: 6px 8px; font: inherit; color: var(--text);
+                           background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px;
+           margin-top: 20px; }
+  .panel h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+              margin: 0 0 10px; }
+  #answer { white-space: pre-wrap; min-height: 1.5em; }
+  .cite { display: inline; padding: 0 4px; margin: 0 1px; border: 0; border-radius: 4px; font-size: .85em;
+          font-weight: 600; background: var(--accent-soft); color: var(--accent); }
+  .meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; font-size: .9rem; color: var(--muted); }
+  .pill { padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); }
+  .warn { background: var(--warn-bg); color: var(--warn-text); border-radius: 8px; padding: 10px 12px;
+          margin-top: 12px; font-size: .9rem; }
+  .warn ul { margin: 4px 0 0; padding-left: 20px; }
+  .error { background: var(--err-bg); color: var(--err-text); border-radius: 8px; padding: 12px 14px; margin-top: 20px; }
+  .disclaimer { color: var(--muted); font-size: .85rem; margin-top: 14px; }
+  .source { border-top: 1px solid var(--border); padding: 12px 0; scroll-margin-top: 16px; }
+  .source:first-of-type { border-top: 0; padding-top: 0; }
+  .source.active { background: var(--mark); border-radius: 8px; padding: 12px; }
+  .src-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .src-num { font-weight: 700; color: var(--accent); }
+  .src-paper { font-weight: 600; word-break: break-all; }
+  .src-meta { color: var(--muted); font-size: .85rem; }
+  .excerpt { margin: 6px 0 0; font-size: .92rem; color: var(--text); }
+  .hidden { display: none; }
+  .cursor::after { content: "▍"; animation: blink 1s steps(1) infinite; color: var(--muted); }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Alzheimer's Research Assistant</h1>
+  <p class="sub">Answers are summarized from the indexed research papers, with citations you can check.</p>
+
+  <form id="form">
+    <input id="q" type="text" placeholder="e.g. Is plasma eMTBR-tau better than p-tau217?" autocomplete="off" required>
+    <button id="ask" type="submit">Ask</button>
+  </form>
+  <details class="settings">
+    <summary>Settings</summary>
+    <label>API key (only if the server sets API_KEY)<input id="key" type="password" autocomplete="off"></label>
+  </details>
+
+  <div id="error" class="error hidden" role="alert"></div>
+
+  <section id="result" class="hidden">
+    <div class="panel">
+      <h2>Answer</h2>
+      <div id="answer" aria-live="polite"></div>
+      <div id="meta" class="meta hidden"></div>
+      <div id="warnings" class="warn hidden"></div>
+      <p id="disclaimer" class="disclaimer hidden"></p>
+    </div>
+    <div class="panel">
+      <h2>Sources (exact excerpts the model was given)</h2>
+      <div id="sources"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const form = $("form"), q = $("q"), ask = $("ask"), key = $("key");
+  const answerEl = $("answer"), sourcesEl = $("sources");
+
+  try { key.value = sessionStorage.getItem("apiKey") || ""; } catch (_) {}
+
+  const WARNING_TEXT = {
+    no_sources: "No passage in the indexed papers is relevant enough to answer this.",
+    low_confidence: "Low confidence: retrieval or citation support is weak.",
+    empty_context: "No source text was available to check the answer against.",
+  };
+  const describeWarning = (w) =>
+    WARNING_TEXT[w] || (w.startsWith("low_support:")
+      ? "Possibly unsupported by the sources: " + w.slice("low_support:".length).trim()
+      : w);
+
+  function reset() {
+    $("error").classList.add("hidden");
+    $("result").classList.remove("hidden");
+    for (const id of ["meta", "warnings", "disclaimer"]) $(id).classList.add("hidden");
+    answerEl.textContent = "";
+    sourcesEl.textContent = "";
+  }
+
+  function showError(msg) {
+    $("error").textContent = msg;
+    $("error").classList.remove("hidden");
+  }
+
+  function renderSources(sources) {
+    if (!sources.length) {
+      sourcesEl.textContent = "None.";
+      return;
+    }
+    for (const s of sources) {
+      const card = document.createElement("div");
+      card.className = "source";
+      card.id = "src-" + s.rank;
+      const head = document.createElement("div");
+      head.className = "src-head";
+      const num = document.createElement("span");
+      num.className = "src-num"; num.textContent = "[" + s.rank + "]";
+      const paper = document.createElement("span");
+      paper.className = "src-paper"; paper.textContent = s.paper;
+      const meta = document.createElement("span");
+      meta.className = "src-meta"; meta.textContent = s.section + " · similarity " + s.score.toFixed(3);
+      head.append(num, paper, meta);
+      const ex = document.createElement("p");
+      ex.className = "excerpt"; ex.textContent = s.excerpt;
+      card.append(head, ex);
+      sourcesEl.append(card);
+    }
+  }
+
+  function focusSource(n) {
+    const card = $("src-" + n);
+    if (!card) return;
+    document.querySelectorAll(".source.active").forEach((el) => el.classList.remove("active"));
+    card.classList.add("active");
+    card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  // Replace "[n]" markers with buttons that jump to source n (text nodes only, never parsed as HTML).
+  function linkCitations(text, nSources) {
+    answerEl.textContent = "";
+    for (const part of text.split(/(\[\d+\])/)) {
+      const m = part.match(/^\[(\d+)\]$/);
+      if (m && Number(m[1]) >= 1 && Number(m[1]) <= nSources) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "cite"; b.textContent = part;
+        b.title = "Show source " + m[1];
+        b.addEventListener("click", () => focusSource(m[1]));
+        answerEl.append(b);
+      } else if (part) {
+        answerEl.append(document.createTextNode(part));
+      }
+    }
+  }
+
+  function renderDone(ev) {
+    const meta = $("meta");
+    meta.textContent = "";
+    const pill = document.createElement("span");
+    pill.className = "pill"; pill.textContent = "Confidence " + Math.round(ev.confidence * 100) + "%";
+    meta.append(pill);
+    meta.classList.remove("hidden");
+
+    if (ev.warnings && ev.warnings.length) {
+      const box = $("warnings");
+      box.textContent = "Check these before relying on the answer:";
+      const ul = document.createElement("ul");
+      for (const w of ev.warnings) {
+        const li = document.createElement("li"); li.textContent = describeWarning(w); ul.append(li);
+      }
+      box.append(ul);
+      box.classList.remove("hidden");
+    }
+    $("disclaimer").textContent = ev.disclaimer;
+    $("disclaimer").classList.remove("hidden");
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const question = q.value.trim();
+    if (!question) return;
+    try { sessionStorage.setItem("apiKey", key.value); } catch (_) {}
+
+    reset();
+    ask.disabled = true;
+    answerEl.classList.add("cursor");
+    let text = "", nSources = 0;
+
+    try {
+      const headers = { "Content-Type": "application/json" };
+      if (key.value) headers["X-API-Key"] = key.value;
+      const resp = await fetch("/query/stream", { method: "POST", headers, body: JSON.stringify({ question }) });
+      if (!resp.ok) {
+        let detail = resp.status + " " + resp.statusText;
+        try { const j = await resp.json(); if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch (_) {}
+        throw new Error(detail);
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          const ev = JSON.parse(line);
+          if (ev.type === "sources") { nSources = ev.sources.length; renderSources(ev.sources); }
+          else if (ev.type === "token") { text += ev.text; answerEl.textContent = text; }
+          else if (ev.type === "done") { linkCitations(text, nSources); renderDone(ev); }
+          else if (ev.type === "error") { throw new Error(ev.detail); }
+        }
+      }
+    } catch (err) {
+      showError("Error: " + err.message);
+    } finally {
+      answerEl.classList.remove("cursor");
+      ask.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>

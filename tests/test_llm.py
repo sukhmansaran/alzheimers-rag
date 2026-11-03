@@ -128,3 +128,16 @@ def test_ask_streaming_passes_tokens_and_matches_non_streaming(monkeypatch):
 
     assert seen == ["- Claim ", "[1]."]
     assert streamed == plain
+
+
+def test_hallucination_guard_ignores_instructed_safety_line():
+    sources = [{"text": "plasma emtbr-tau reflects tangle pathology"}]
+    answer = ("- Plasma eMTBR-tau reflects tangle pathology [1].\n\n"
+              "Consult a healthcare professional for personal medical decisions.")
+    assert llm.check_hallucination(answer, sources) == []
+
+
+def test_hallucination_guard_still_flags_unsupported_claims():
+    sources = [{"text": "plasma emtbr-tau reflects tangle pathology"}]
+    answer = "Lithium supplements completely reverse cognitive decline within weeks."
+    assert llm.check_hallucination(answer, sources)[0].startswith("low_support")

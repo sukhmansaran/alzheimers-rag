@@ -163,3 +163,12 @@ def test_query_stream_no_sources(client, monkeypatch):
 def test_query_stream_requires_api_key_when_configured(client, monkeypatch):
     monkeypatch.setenv("API_KEY", "s3cret")
     assert client.post("/query/stream", json={"question": "q"}).status_code == 401
+
+
+def test_web_ui_is_served_at_root(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "/query/stream" in resp.text
+    # Untrusted text (papers, LLM output) must never be injected as HTML
+    assert "innerHTML" not in resp.text
