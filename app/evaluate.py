@@ -119,7 +119,8 @@ def eval_retrieval(model, index, chunks, k=5):
                 issues.append("too_few")
             if len(papers) < 2:
                 issues.append("low_diversity")
-            if scores and scores[0] < 0.5:
+            # bge-small scale: weakest on-topic eval question's best chunk measured 0.644
+            if scores and scores[0] < 0.65:
                 issues.append("low_score")
 
             status = "✅" if not issues else "⚠️"
