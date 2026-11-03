@@ -39,12 +39,69 @@ QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 SKIP_SECTIONS = {"References", "Acknowledgments", "Preamble", "Keywords"}
 
 
+# Two-column detection: in single-column text most lines have a word crossing the page's
+# vertical midline (measured 0.2-0.8 straddling words per line); two-column pages have a gutter
+# there (measured 0.03-0.05). Table/figure pages can also look two-column, so column-aware
+# extraction is only used when most pages of the document are two-column.
+MIN_WORDS_FOR_LAYOUT = 80
+# pdfplumber's default 3pt gap merged words in tightly set PDFs ("theywerenon-originalreviews");
+# 2pt separates them and left word counts of the other papers unchanged (measured).
+X_TOLERANCE = 2
+TWO_COLUMN_MAX_STRADDLE = 0.15
+TWO_COLUMN_DOC_RATIO = 0.5
+
+
+def _line_groups(words: list[dict]) -> list[list[dict]]:
+    """Group words into lines by vertical position (3pt tolerance), top to bottom."""
+    lines: dict[int, list[dict]] = {}
+    for w in words:
+        lines.setdefault(round(w["top"] / 3), []).append(w)
+    return [sorted(ln, key=lambda w: w["x0"]) for _, ln in sorted(lines.items())]
+
+
+def _is_two_column(page) -> bool:
+    words = page.extract_words(x_tolerance=X_TOLERANCE)
+    if len(words) < MIN_WORDS_FOR_LAYOUT:
+        return False
+    mid = page.width / 2
+    straddling = sum(1 for w in words if w["x0"] < mid < w["x1"])
+    left = sum(1 for w in words if w["x1"] <= mid)
+    right = sum(1 for w in words if w["x0"] >= mid)
+    n_lines = len(_line_groups(words))
+    return straddling / max(n_lines, 1) < TWO_COLUMN_MAX_STRADDLE and min(left, right) > 0.25 * (left + right)
+
+
+def _extract_two_column(page) -> str:
+    """Full-width lines at the top (banner, title) first, then the left column, then the right."""
+    mid = page.width / 2
+    header, left, right = [], [], []
+    in_header = True
+    for line in _line_groups(page.extract_words(x_tolerance=X_TOLERANCE)):
+        if any(w["x0"] < mid < w["x1"] for w in line):
+            (header if in_header else left).append(" ".join(w["text"] for w in line))
+            continue
+        in_header = False
+        lw = [w["text"] for w in line if w["x1"] <= mid]
+        rw = [w["text"] for w in line if w["x0"] >= mid]
+        if lw:
+            left.append(" ".join(lw))
+        if rw:
+            right.append(" ".join(rw))
+    return "\n".join(header + left + right)
+
+
 def extract_text(pdf_path: str) -> str:
-    """Extract clean text from a PDF."""
+    """Extract clean text from a PDF, reading two-column documents column by column."""
     pages = []
     with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            t = page.extract_text()
+        layout = [
+            (p, _is_two_column(p), len(p.extract_words(x_tolerance=X_TOLERANCE)) >= MIN_WORDS_FOR_LAYOUT)
+            for p in pdf.pages
+        ]
+        text_pages = [two for _, two, has_text in layout if has_text]
+        two_column_doc = bool(text_pages) and sum(text_pages) / len(text_pages) > TWO_COLUMN_DOC_RATIO
+        for page, two, _ in layout:
+            t = _extract_two_column(page) if (two_column_doc and two) else page.extract_text(x_tolerance=X_TOLERANCE)
             if t:
                 pages.append(t)
     return "\n".join(pages)
