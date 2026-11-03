@@ -117,3 +117,17 @@ def test_strip_layout_noise_leading_line_numbers_and_page_numbers():
 def test_strip_layout_noise_leaves_unnumbered_text_alone():
     text = "Patients were followed for 24\nmonths and amyloid PET was repeated.\nResults\nWe enrolled 120"
     assert strip_layout_noise(text) == text
+
+
+def test_strip_layout_noise_removes_medrxiv_banner_with_spaced_period():
+    banner = (
+        "medRxiv preprint doi: https://doi.org/10.64898/2026.07.08.26357542; this version posted July 9, 2026. "
+        "The copyright holder for this preprint\n(which was not certified by peer review) is the author/funder, "
+        "who has granted medRxiv a license to display the preprint in perpetuity.\n"
+        "It is made available under a CC-BY-NC-ND 4.0 International license ."
+    )
+    assert strip_layout_noise(f"before\n{banner}\nafter").split() == ["before", "after"]
+
+
+def test_clean_text_normalizes_curly_quotes_and_dashes():
+    assert clean_text("Alzheimer’s disease – a “review”") == "Alzheimer's disease - a \"review\""

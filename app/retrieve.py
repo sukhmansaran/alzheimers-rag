@@ -1,6 +1,10 @@
 """
-Retrieval pipeline:
-  Query → enhance → FAISS top-k → rerank → quality filter → dedup (embedding) → diversify.
+Retrieval pipeline (hybrid):
+  Query → dense (FAISS) top-n + BM25 top-n → reciprocal-rank fusion × section weight
+        → relevance + quality filter → dedup (embedding) → diversify → top-k.
+
+Choices below were measured on app/eval_queries.json (python -m app.evaluate --retrieval-only)
+and an off-topic probe set; see tests/eval_results.md.
 """
 import json
 import os
@@ -10,7 +14,8 @@ import numpy as np
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
-from app.ingest import CHUNKS_PATH, EMBED_MODEL, INDEX_PATH
+from app.bm25 import BM25
+from app.ingest import CHUNKS_PATH, EMBED_MODEL, INDEX_META_PATH, INDEX_PATH, QUERY_INSTRUCTION
 
 load_dotenv()
 HF_TOKEN = os.environ.get("HF_TOKEN", None)
@@ -29,7 +34,11 @@ SECTION_WEIGHTS = {
     "Introduction": 0.85,
 }
 
-MIN_SCORE = 0.3
+# Cosine similarity floor (bge-small scale). Measured: weakest on-topic eval question's best
+# chunk = 0.644; strongest off-topic probe ("capital of France", "bake bread", ...) = 0.500.
+MIN_SCORE = 0.55
+CANDIDATES = 20   # taken from each of dense and BM25 before fusion
+RRF_K = 60        # standard reciprocal-rank-fusion constant
 DEDUP_THRESHOLD = 0.95  # cosine similarity above this = duplicate
 
 # Sections to exclude at retrieval time (safety net)
@@ -38,9 +47,18 @@ SKIP_SECTIONS = {"References", "Acknowledgments", "Preamble", "Keywords"}
 
 def load_retriever():
     """Load model, index, and chunks once."""
-    for path in (INDEX_PATH, CHUNKS_PATH):
+    for path in (INDEX_PATH, CHUNKS_PATH, INDEX_META_PATH):
         if not os.path.exists(path):
             raise FileNotFoundError(f"{path} not found — run `python -m app.ingest` first")
+
+    with open(INDEX_META_PATH, encoding="utf-8") as f:
+        meta = json.load(f)
+    if meta.get("embed_model") != EMBED_MODEL:
+        # Same vector size across models, so a mismatch would silently return wrong results.
+        raise RuntimeError(
+            f"Index was built with {meta.get('embed_model')!r} but the app uses {EMBED_MODEL!r} — "
+            "re-run `python -m app.ingest`"
+        )
 
     index = faiss.read_index(INDEX_PATH)
     with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
@@ -55,57 +73,73 @@ def load_retriever():
     return model, index, chunks
 
 
-def enhance_query(query: str) -> str:
-    """Add domain context to improve embedding quality."""
-    return f"Alzheimer's disease research: {query}"
+_bm25_cache: tuple[list[dict], BM25] | None = None
 
 
-def _faiss_search(query: str, model, index, chunks, k: int) -> list[dict]:
-    """Raw FAISS cosine similarity search."""
-    q_emb = model.encode([enhance_query(query)], convert_to_numpy=True)
-    q_emb = q_emb.astype(np.float32)
-    faiss.normalize_L2(q_emb)
-    scores, indices = index.search(q_emb, k)
+def _bm25_for(chunks: list[dict]) -> BM25:
+    """Build the BM25 index once per chunk list (cheap: hundreds of chunks)."""
+    global _bm25_cache
+    if _bm25_cache is None or _bm25_cache[0] is not chunks:
+        _bm25_cache = (chunks, BM25([c["text"] for c in chunks]))
+    return _bm25_cache[1]
+
+
+def _encode_query(query: str, model) -> np.ndarray:
+    q = model.encode([QUERY_INSTRUCTION + query], convert_to_numpy=True).astype(np.float32)
+    faiss.normalize_L2(q)
+    return q
+
+
+def _hybrid_candidates(query: str, model, index, chunks) -> list[dict]:
+    """Union of dense and BM25 top candidates, each with cosine score and fused RRF score."""
+    q = _encode_query(query, model)
+    _, dense_ids = index.search(q, min(CANDIDATES, index.ntotal))
+    dense_rank = [int(i) for i in dense_ids[0] if i >= 0]
+
+    bm = _bm25_for(chunks).scores(query)
+    bm_rank = [i for i in np.argsort(bm)[::-1][:CANDIDATES] if bm[i] > 0]
+
+    fused: dict[int, float] = {}
+    for ranking in (dense_rank, bm_rank):
+        for r, i in enumerate(ranking):
+            fused[int(i)] = fused.get(int(i), 0.0) + 1 / (RRF_K + r + 1)
 
     results = []
-    for score, idx in zip(scores[0], indices[0], strict=True):
-        if idx < 0 or float(score) < MIN_SCORE:
-            continue
-        c = dict(chunks[idx])
+    for i, rrf in fused.items():
+        c = dict(chunks[i])
         if c.get("section") in SKIP_SECTIONS:
             continue
-        c["score"] = float(score)
+        c["score"] = float(index.reconstruct(i) @ q[0])  # cosine similarity (vectors are normalized)
+        c["rrf"] = rrf
         c["snippet"] = c["text"][:200]
+        c["index_id"] = i  # row in the FAISS index, reused by dedup
         results.append(c)
     return results
 
 
-def rerank(query: str, results: list[dict]) -> list[dict]:
-    """Re-rank by combining cosine score + keyword overlap + section weight.
+def rerank(results: list[dict]) -> list[dict]:
+    """Order by fused rank score × section weight, and attach a 0-1 relevance from cosine.
 
     Only SECTION_WEIGHTS is applied. The ingest-time chunk "weight" also encodes
-    section, so multiplying both double-counted it (Results ~2.6x) and let weak
-    Results chunks outrank much more similar Discussion/Abstract chunks.
+    section, so multiplying both double-counted it (Results ~2.6x).
     """
-    query_words = set(query.lower().split())
-
     for r in results:
-        text_words = set(r["text"].lower().split())
-        keyword_bonus = 0.01 * len(query_words & text_words)
-        section_weight = SECTION_WEIGHTS.get(r["section"], 1.0)
-        r["rerank_score"] = (r["score"] + keyword_bonus) * section_weight
-
+        r["rerank_score"] = r["rrf"] * SECTION_WEIGHTS.get(r["section"], 1.0)
+        # Rescale similarity so MIN_SCORE → 0 and 1.0 → 1 (used by confidence scoring)
+        r["relevance"] = max(0.0, min((r["score"] - MIN_SCORE) / (1 - MIN_SCORE), 1.0))
     return sorted(results, key=lambda x: x["rerank_score"], reverse=True)
 
 
-def _dedup_by_embedding(results: list[dict], model) -> list[dict]:
-    """Remove semantically duplicate chunks using embedding cosine similarity."""
+def _dedup_by_embedding(results: list[dict], index) -> list[dict]:
+    """Remove semantically duplicate chunks using embedding cosine similarity.
+
+    Reuses the (already normalized) vectors stored in the FAISS index instead of
+    re-encoding every candidate on each query.
+    """
     if not results:
         return results
 
-    texts = [r["text"] for r in results]
-    embeddings = model.encode(texts, convert_to_numpy=True).astype(np.float32)
-    faiss.normalize_L2(embeddings)
+    embeddings = np.stack([index.reconstruct(r["index_id"]) for r in results])
 
     selected = [0]  # always keep the top result
     for i in range(1, len(results)):
@@ -146,21 +180,17 @@ def _is_good_hit(text: str) -> bool:
 
 
 def search(query: str, model, index, chunks, k: int = 5) -> list[dict]:
-    """Full pipeline: search → rerank → quality filter → dedup (embedding) → diversify → top-k.
+    """Full pipeline: hybrid candidates → rerank → relevance/quality filter → dedup → diversify → top-k.
 
     Filtering runs before dedup/diversify so a low-quality chunk can't claim a
     dedup or per-paper slot and then be discarded, taking good chunks with it.
+    Returns [] when nothing clears MIN_SCORE (e.g. off-topic questions).
     """
-    raw = _faiss_search(query, model, index, chunks, k=k * 4)
-    ranked = rerank(query, raw)
+    ranked = rerank(_hybrid_candidates(query, model, index, chunks))
 
-    # Score threshold + quality filter
-    filtered = [
-        r for r in ranked
-        if r["rerank_score"] >= MIN_SCORE and _is_good_hit(r["text"])
-    ]
+    filtered = [r for r in ranked if r["score"] >= MIN_SCORE and _is_good_hit(r["text"])]
 
-    deduped = _dedup_by_embedding(filtered, model)
+    deduped = _dedup_by_embedding(filtered, index)
     diverse = diversify(deduped)
 
     for i, r in enumerate(diverse[:k]):

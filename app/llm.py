@@ -192,7 +192,8 @@ def compute_confidence(hits: list[dict], answer: str, chunks_used: list[dict]) -
     """Compute a 0-1 confidence score for the generated answer.
 
     Factors:
-      - retrieval_score: avg cosine similarity of top chunks (raw, not section-weighted)
+      - retrieval_score: avg relevance of top chunks (cosine rescaled by retrieval so the
+                         relevance floor → 0; raw cosine if no relevance is attached)
       - citation_score:  how many [N] refs appear in the answer
       - overlap_score:   keyword overlap between answer and context
     """
@@ -200,7 +201,7 @@ def compute_confidence(hits: list[dict], answer: str, chunks_used: list[dict]) -
         return 0.0
 
     # 1. Retrieval quality (avg of top chunk scores, normalized to 0-1)
-    scores = [h.get("score", 0.0) for h in hits[:MAX_CHUNKS]]
+    scores = [h.get("relevance", h.get("score", 0.0)) for h in hits[:MAX_CHUNKS]]
     retrieval_score = max(0.0, min(sum(scores) / max(len(scores), 1), 1.0))
 
     # 2. Citation density

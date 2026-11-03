@@ -28,7 +28,12 @@ HF_TOKEN = os.environ.get("HF_TOKEN", None)
 PROCESSED_DIR = os.path.join(PROJECT_ROOT, "processed")
 CHUNKS_PATH = os.path.join(PROCESSED_DIR, "chunks.json")
 INDEX_PATH = os.path.join(PROCESSED_DIR, "embeddings.faiss")
-EMBED_MODEL = "all-MiniLM-L6-v2"
+INDEX_META_PATH = os.path.join(PROCESSED_DIR, "index_meta.json")
+
+# bge-small reads 512 tokens per chunk (MiniLM truncated at 256, ~1/3 of a chunk) and scored
+# best on the labelled eval. Queries get bge's retrieval instruction; passages are embedded as-is.
+EMBED_MODEL = "BAAI/bge-small-en-v1.5"
+QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 # Sections to skip — only actual garbage
 SKIP_SECTIONS = {"References", "Acknowledgments", "Preamble", "Keywords"}
@@ -129,6 +134,10 @@ def run_ingestion():
     with open(CHUNKS_PATH, "w", encoding="utf-8") as f:
         json.dump(all_chunks, f, indent=2, ensure_ascii=False)
     print(f"Saved chunks → {CHUNKS_PATH}")
+
+    # 5. Record which model built the index (checked at load time)
+    with open(INDEX_META_PATH, "w", encoding="utf-8") as f:
+        json.dump({"embed_model": EMBED_MODEL, "chunks": len(all_chunks), "dim": dim}, f, indent=2)
 
     print("✅ Ingestion complete.")
 

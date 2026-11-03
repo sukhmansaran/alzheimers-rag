@@ -49,14 +49,15 @@ PDF files (data/)
 │  → sections       │  (academic heading detection + fallback)
 │  → weighted chunks│  (section-aware, 400-word base)
 │  → quality filter │  (noise/reference removal)
-│  → embeddings     │  (all-MiniLM-L6-v2)
+│  → embeddings     │  (BAAI/bge-small-en-v1.5)
 │  → FAISS index    │
 └────────┬─────────┘
          │ saved to processed/
          ▼
 ┌──────────────────┐
-│    Retrieval      │  query → enhance → FAISS top-k
-│                   │  → rerank (score + keywords + section weight)
+│    Retrieval      │  query → dense (FAISS) + keyword (BM25)
+│                   │  → rank fusion × section weight
+│                   │  → relevance floor (off-topic → no sources)
 │                   │  → embedding dedup
 │                   │  → diversify (max 2 per paper)
 └────────┬─────────┘
@@ -123,9 +124,10 @@ With no `API_KEY`, the API is open, which is fine for local use. `/health` is al
 
 ## Evaluation
 
-`python -m app.evaluate` runs three checks:
+`python -m app.evaluate` runs four checks (`--retrieval-only` runs just the first, no Ollama needed):
 
-- Retrieval — relevant chunks, source diversity, score thresholds
+- Labelled retrieval — 44 questions in [app/eval_queries.json](app/eval_queries.json), each tagged with the paper(s) that answer it; reports hit@5 and MRR, split into "easy" (the paper's own terms) and "hard" (paraphrased in plain language)
+- Retrieval sanity — source diversity, score thresholds
 - Answers — grounding (sentence-level key-term coverage of the context the LLM saw), valid citations, answer length
 - Safety — refuses medical advice, no fabricated claims
 
@@ -145,9 +147,11 @@ The full `python -m app.evaluate` suite needs Ollama and the ingested corpus, so
 ├── processed/          # chunks.json + embeddings.faiss (generated)
 ├── app/
 │   ├── ingest.py       # PDF → chunks → embeddings → FAISS index
-│   ├── retrieve.py     # Search → rerank → dedup → diversify
+│   ├── retrieve.py     # Hybrid search → fuse → filter → dedup → diversify
+│   ├── bm25.py         # BM25 keyword scoring
+│   ├── eval_queries.json # Labelled eval questions
 │   ├── llm.py          # Ollama integration, prompt, guards
-│   ├── evaluate.py     # Retrieval + answer + safety evaluation
+│   ├── evaluate.py     # Labelled retrieval + answer + safety evaluation
 │   ├── api.py          # FastAPI server
 │   ├── main.py         # CLI entry point
 │   └── utils.py        # Text cleaning, section detection, chunking
@@ -169,6 +173,8 @@ The full `python -m app.evaluate` suite needs Ollama and the ingested corpus, so
 ## Design Decisions
 
 - Section-aware chunking preserves academic structure (Abstract, Methods, Results, etc.)
+- Hybrid retrieval: dense + BM25 merged with reciprocal-rank fusion. Exact terms (APOE ε4, p-tau217) come from BM25, paraphrases from embeddings
+- Relevance floor (cosine 0.55) sits between the weakest on-topic (0.644) and strongest off-topic (0.500) score measured, so off-topic questions get no sources instead of a forced answer
 - Section weighting at rerank time (applied once): Results 1.3 > Discussion/Abstract 1.2 > Conclusion 1.1 > Methods 1.0 > Introduction 0.85
 - Ingestion = high recall, Retrieval = medium precision, LLM = final filter
 - Embedding-based dedup removes semantically duplicate chunks

@@ -1,0 +1,337 @@
+{
+  "_comment": "Labelled retrieval eval. 'expected' lists file-name prefixes of every paper that genuinely answers the question (verified against paper text). A query is a hit if any expected paper appears in the top-k results. 'hard' queries are paraphrased in plain language and avoid each paper's distinctive terms (e.g. no 'rTMS', 'eMTBR', 'NULISA'), so they test semantic matching rather than keyword overlap.",
+  "papers": {
+    "RTMS": "2025.08.31.25334781",
+    "LECANEMAB": "2025.09.30.25337002",
+    "ORGANOID": "2026.03.09.710594",
+    "SNRNA": "2026.04.14.718430",
+    "BLOOD_ETHNIC": "2026.05.14.26353162",
+    "ML_REVIEW": "2026.05.21.26353815",
+    "LIFESTYLE_PRS": "2026.06.01.26354634",
+    "NPS_RISK": "2026.06.04.26353599",
+    "NULISA_BRAIN": "2026.07.01.735558",
+    "T2D_REVIEW": "2026.07.08.26357542",
+    "CHIMP": "2026.08.12.744516",
+    "TRIAL_PLACEBO": "2026.08.27.26361425",
+    "EMTBR_TAU": "2026.09.29.26363951"
+  },
+  "queries": [
+    {
+      "q": "Does repetitive transcranial magnetic stimulation improve cognition in Alzheimer's patients?",
+      "expected": [
+        "RTMS"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "What non-invasive brain stimulation therapies have been tested for Alzheimer's disease?",
+      "expected": [
+        "RTMS"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "What adverse events were seen in patients receiving lecanemab?",
+      "expected": [
+        "LECANEMAB"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Is ARIA during anti-amyloid therapy linked to APOE genotype?",
+      "expected": [
+        "LECANEMAB"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Can brain organoids be used as a source of amyloid-beta oligomers?",
+      "expected": [
+        "ORGANOID"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "How were amyloid-beta oligomers separated from organoid conditioned media?",
+      "expected": [
+        "ORGANOID"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "How do excitatory neurons in the prefrontal cortex degenerate across stages of Alzheimer's according to single-nucleus RNA sequencing?",
+      "expected": [
+        "SNRNA"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Which kinases and phosphatases become dysregulated as neurons degenerate in Alzheimer's?",
+      "expected": [
+        "SNRNA"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Do blood biomarkers for Alzheimer's perform consistently across ethnoracial groups?",
+      "expected": [
+        "BLOOD_ETHNIC"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Does country income level affect blood biomarker results in Alzheimer's studies?",
+      "expected": [
+        "BLOOD_ETHNIC"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "How accurate are machine learning and deep learning models at diagnosing Alzheimer's or MCI?",
+      "expected": [
+        "ML_REVIEW"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "What AUC do AI models achieve for early detection of Alzheimer's disease?",
+      "expected": [
+        "ML_REVIEW"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Can a healthy lifestyle offset high genetic risk for dementia?",
+      "expected": [
+        "LIFESTYLE_PRS"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "How does a polygenic risk score combine with modifiable risk factors to predict dementia?",
+      "expected": [
+        "LIFESTYLE_PRS"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Which modifiable risk factors are linked to neuropsychiatric symptoms in Alzheimer's?",
+      "expected": [
+        "NPS_RISK"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Is APOE e4 carrier status associated with agitation, depression or other neuropsychiatric symptoms?",
+      "expected": [
+        "NPS_RISK"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "How does protein expression differ between typical and atypical Alzheimer's subtypes in postmortem brain?",
+      "expected": [
+        "NULISA_BRAIN"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "What did NULISA targeted proteomics reveal in postmortem Alzheimer's brain tissue?",
+      "expected": [
+        "NULISA_BRAIN"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Does type 2 diabetes increase the risk of Alzheimer's disease?",
+      "expected": [
+        "T2D_REVIEW",
+        "LIFESTYLE_PRS"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "What is the incidence of Alzheimer's among people with type 2 diabetes?",
+      "expected": [
+        "T2D_REVIEW"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Do chimpanzees show Alzheimer's-related biomarker changes with age?",
+      "expected": [
+        "CHIMP"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Are serum amyloid biomarkers associated with cortical atrophy in non-human primates?",
+      "expected": [
+        "CHIMP"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "How do CSF and plasma biomarkers change over time in the placebo arm of an Alzheimer's trial?",
+      "expected": [
+        "TRIAL_PLACEBO"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "What sample sizes are needed to detect treatment effects on fluid biomarkers in Alzheimer's trials?",
+      "expected": [
+        "TRIAL_PLACEBO"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Is plasma eMTBR-tau more accurate than p-tau217 for classifying Braak stage?",
+      "expected": [
+        "EMTBR_TAU"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Which blood test reflects neurofibrillary tangle burden rather than amyloid plaque load?",
+      "expected": [
+        "EMTBR_TAU"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "What blood biomarkers are used to detect Alzheimer's disease?",
+      "expected": [
+        "BLOOD_ETHNIC",
+        "EMTBR_TAU",
+        "TRIAL_PLACEBO",
+        "CHIMP"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "What treatments for Alzheimer's disease have been studied?",
+      "expected": [
+        "LECANEMAB",
+        "RTMS",
+        "TRIAL_PLACEBO"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "What modifiable risk factors are associated with Alzheimer's disease?",
+      "expected": [
+        "LIFESTYLE_PRS",
+        "T2D_REVIEW",
+        "NPS_RISK"
+      ],
+      "level": "easy"
+    },
+    {
+      "q": "Can magnetic pulses applied to the scalp help memory in people with dementia?",
+      "expected": [
+        "RTMS"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "Is brain swelling or bleeding a side effect of the new antibody drugs that clear plaques?",
+      "expected": [
+        "LECANEMAB"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "Do patients who live far from a hospital have more complications from infusion treatment?",
+      "expected": [
+        "LECANEMAB"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "Can lab-grown mini brains made from stem cells reproduce the toxic protein clumps seen in patients?",
+      "expected": [
+        "ORGANOID"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "Why do some nerve cells in the same brain look healthy while others are already dying?",
+      "expected": [
+        "SNRNA"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "Are blood tests for dementia equally reliable in Black, Asian and Hispanic patients?",
+      "expected": [
+        "BLOOD_ETHNIC"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "Can computer algorithms spot dementia early from brain scans or clinical data?",
+      "expected": [
+        "ML_REVIEW"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "If dementia runs in my family, can exercise and not smoking still lower my chances?",
+      "expected": [
+        "LIFESTYLE_PRS"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "What makes people with Alzheimer's more likely to develop depression, anxiety or aggression?",
+      "expected": [
+        "NPS_RISK"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "Why do some people get Alzheimer's before 65 with language or visual problems instead of memory loss?",
+      "expected": [
+        "NULISA_BRAIN"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "Are people with high blood sugar more likely to get Alzheimer's?",
+      "expected": [
+        "T2D_REVIEW",
+        "LIFESTYLE_PRS"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "Do our closest ape relatives develop brain changes like human dementia as they get older?",
+      "expected": [
+        "CHIMP"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "How much do dementia markers drift naturally in untreated patients, and how many participants does a drug study need?",
+      "expected": [
+        "TRIAL_PLACEBO"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "Can a blood sample taken years before death predict what the brain looks like at autopsy?",
+      "expected": [
+        "EMTBR_TAU"
+      ],
+      "level": "hard"
+    },
+    {
+      "q": "Which brain regions show different protein patterns depending on where tangles accumulate?",
+      "expected": [
+        "NULISA_BRAIN"
+      ],
+      "level": "hard"
+    }
+  ]
+}

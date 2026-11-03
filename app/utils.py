@@ -49,8 +49,16 @@ def normalize_section(name: str) -> str:
     return name.title()
 
 
+# Curly quotes and dashes → ASCII, so "Alzheimer’s" matches a typed "Alzheimer's"
+_PUNCT_NORMALIZE = str.maketrans({
+    "‘": "'", "’": "'", "“": '"', "”": '"',
+    "–": "-", "—": "-", "−": "-",
+})
+
+
 def clean_text(text: str) -> str:
     """Normalize whitespace, strip citations, fix broken PDF text."""
+    text = text.translate(_PUNCT_NORMALIZE)
     text = _CITATION_NOISE.sub("", text)
     text = text.replace("-\n", "")
     text = text.replace("\n", " ")
@@ -64,7 +72,8 @@ def clean_text(text: str) -> str:
 # ── Page layout noise (preprint banners, line numbers) ────────
 
 _PREPRINT_BANNER = re.compile(
-    r"(?:bio|med)Rxiv preprint doi:.{0,600}?(?:without permission\.|International license\.)",
+    # medRxiv writes "International license ." (space before the period)
+    r"(?:bio|med)Rxiv preprint doi:.{0,600}?(?:without permission\s*\.|International license\s*\.)",
     re.DOTALL,
 )
 _LEADING_LINE_NUMBER = re.compile(r"^\s*\d{1,4}\s+(?=\S)")

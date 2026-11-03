@@ -6,13 +6,13 @@ import numpy as np
 import pytest
 
 from app import retrieve
-from app.retrieve import _is_good_hit, diversify, rerank, search
+from app.retrieve import MIN_SCORE, _is_good_hit, diversify, rerank, search
 
 
 class FakeModel:
     """Embeds text by keyword: each topic word maps to its own axis."""
 
-    TOPICS = ["amyloid", "tau", "apoe", "sleep"]
+    TOPICS = ["amyloid", "tau", "apoe", "sleep", "bread"]  # no chunk is about bread (off-topic probe)
 
     def encode(self, texts, convert_to_numpy=True, **_):
         vecs = np.full((len(texts), len(self.TOPICS)), 0.05, dtype=np.float32)
@@ -42,12 +42,27 @@ def test_diversify_caps_per_paper():
     assert [r["paper"] for r in diversify(results)] == ["a", "a", "b", "c"]
 
 
-def test_rerank_applies_section_weight():
+def test_rerank_applies_section_weight_to_fused_score():
     results = [
-        {"text": "x", "score": 0.6, "section": "Introduction"},
-        {"text": "x", "score": 0.55, "section": "Results"},
+        {"text": "x", "score": 0.7, "rrf": 0.0164, "section": "Introduction"},
+        {"text": "x", "score": 0.7, "rrf": 0.0161, "section": "Results"},
     ]
-    assert [r["section"] for r in rerank("q", results)] == ["Results", "Introduction"]
+    assert [r["section"] for r in rerank(results)] == ["Results", "Introduction"]
+
+
+def test_rerank_relevance_rescales_cosine_to_floor():
+    out = {r["section"]: r["relevance"] for r in rerank([
+        {"text": "x", "score": MIN_SCORE, "rrf": 0.01, "section": "Results"},
+        {"text": "x", "score": 1.0, "rrf": 0.01, "section": "Abstract"},
+        {"text": "x", "score": 0.2, "rrf": 0.01, "section": "Methods"},
+    ])}
+    assert out == {"Results": 0.0, "Abstract": 1.0, "Methods": 0.0}
+
+
+def test_off_topic_query_returns_no_sources():
+    chunks = [_chunk("amyloid", "a.pdf"), _chunk("tau", "b.pdf"), _chunk("apoe", "c.pdf")]
+    model, index = _build(chunks)
+    assert search("how to bake bread", model, index, chunks, k=5) == []
 
 
 def test_search_returns_relevant_ranked_hits():
@@ -82,8 +97,10 @@ def test_load_retriever_rejects_mismatched_index_and_chunks(tmp_path, monkeypatc
     _, index = _build(chunks)
     faiss.write_index(index, str(tmp_path / "e.faiss"))
     (tmp_path / "c.json").write_text(json.dumps(chunks[:1]))
+    (tmp_path / "m.json").write_text(json.dumps({"embed_model": retrieve.EMBED_MODEL}))
     monkeypatch.setattr(retrieve, "INDEX_PATH", str(tmp_path / "e.faiss"))
     monkeypatch.setattr(retrieve, "CHUNKS_PATH", str(tmp_path / "c.json"))
+    monkeypatch.setattr(retrieve, "INDEX_META_PATH", str(tmp_path / "m.json"))
 
     with pytest.raises(RuntimeError, match="re-run"):
         retrieve.load_retriever()
@@ -99,3 +116,17 @@ def test_single_citation_is_kept_but_citation_dense_chunk_is_dropped():
     body = " ".join(["w"] * 60)
     assert _is_good_hit(f"We adopted the Velasco et al. protocol. {body}")
     assert not _is_good_hit(f"Smith et al. Jones et al. Lee et al. {body}")
+
+
+def test_load_retriever_rejects_index_built_with_other_model(tmp_path, monkeypatch):
+    chunks = [_chunk("amyloid", "a.pdf")]
+    _, index = _build(chunks)
+    faiss.write_index(index, str(tmp_path / "e.faiss"))
+    (tmp_path / "c.json").write_text(json.dumps(chunks))
+    (tmp_path / "m.json").write_text(json.dumps({"embed_model": "all-MiniLM-L6-v2"}))
+    monkeypatch.setattr(retrieve, "INDEX_PATH", str(tmp_path / "e.faiss"))
+    monkeypatch.setattr(retrieve, "CHUNKS_PATH", str(tmp_path / "c.json"))
+    monkeypatch.setattr(retrieve, "INDEX_META_PATH", str(tmp_path / "m.json"))
+
+    with pytest.raises(RuntimeError, match="built with 'all-MiniLM-L6-v2'"):
+        retrieve.load_retriever()

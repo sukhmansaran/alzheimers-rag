@@ -2,12 +2,19 @@
 Production-grade RAG evaluation pipeline.
 
 Measures:
-- Retrieval quality
+- Labelled retrieval: hit@k and MRR against papers known to answer each question
+- Retrieval sanity checks (diversity, score thresholds)
 - Grounding (heuristic: key-term coverage of answer sentences in the context)
 - Citation presence and validity
 - Answer length
 - Safety behavior
+
+Usage:
+    python -m app.evaluate                    # full eval (needs Ollama)
+    python -m app.evaluate --retrieval-only   # labelled retrieval only, no LLM
 """
+import json
+import os
 import re
 import sys
 import time
@@ -126,6 +133,57 @@ def eval_retrieval(model, index, chunks, k=5):
                 print("   Issues:", issues)
 
     return results
+
+
+# ─────────────────────────────────────────────────────────────
+# LABELLED RETRIEVAL EVAL
+# ─────────────────────────────────────────────────────────────
+
+EVAL_QUERIES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "eval_queries.json")
+
+
+def load_labelled_queries(path: str = EVAL_QUERIES_PATH) -> list[dict]:
+    """Return [{"q", "expected": [file-name prefix, ...], "level"}] with paper keys resolved."""
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    papers = data["papers"]
+    return [
+        {"q": item["q"], "expected": [papers[key] for key in item["expected"]], "level": item.get("level", "easy")}
+        for item in data["queries"]
+    ]
+
+
+def eval_labelled_retrieval(model, index, chunks, k=5, search_fn=search, verbose=True):
+    """hit@k = share of queries with a correct paper in the top k; MRR = mean of 1/rank of the first one.
+
+    Reported overall and per level ("easy" = paper's own terms, "hard" = paraphrased).
+    """
+    queries = load_labelled_queries()
+    stats: dict[str, dict] = {}
+    misses = []
+
+    for item in queries:
+        results = search_fn(item["q"], model, index, chunks, k=k)
+        rank = next(
+            (i + 1 for i, h in enumerate(results) if h["paper"].startswith(tuple(item["expected"]))),
+            None,
+        )
+        for key in ("all", item["level"]):
+            s = stats.setdefault(key, {"total": 0, "hits": 0, "rr": 0.0})
+            s["total"] += 1
+            if rank:
+                s["hits"] += 1
+                s["rr"] += 1 / rank
+        if not rank:
+            misses.append({"query": item["q"], "got": [h["paper"] for h in results]})
+        if verbose:
+            print(f"{'✅' if rank else '❌'} [{item['level']}] rank={rank or '-'}  {item['q']}")
+
+    out = {
+        key: {"total": s["total"], "hits": s["hits"], "hit_at_k": s["hits"] / s["total"], "mrr": s["rr"] / s["total"]}
+        for key, s in stats.items()
+    }
+    return {**out["all"], "by_level": out, "misses": misses}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -252,7 +310,14 @@ def main():
 
     model, index, chunks = load_retriever()
 
-    print("\n📚 RETRIEVAL")
+    print("\n🎯 LABELLED RETRIEVAL (top 5)")
+    lab = eval_labelled_retrieval(model, index, chunks)
+    for level, s in lab["by_level"].items():
+        print(f"  {level:5s} hit@5: {s['hits']}/{s['total']} ({s['hit_at_k']:.0%})  MRR: {s['mrr']:.3f}")
+    if "--retrieval-only" in sys.argv:
+        return
+
+    print("\n📚 RETRIEVAL SANITY CHECKS")
     ret = eval_retrieval(model, index, chunks)
 
     print("\n🤖 ANSWERS")
@@ -278,6 +343,7 @@ def main():
     print("SUMMARY")
     print("=" * 60)
 
+    print(f"Labelled:  hit@5 {lab['hits']}/{lab['total']}  MRR {lab['mrr']:.3f}")
     print(f"Retrieval: {ret['good']}/{ret['total']}")
     print(f"Grounded:  {ans['grounded']}/{ans['total']}")
     print(f"Citations: {ans['citations']}/{ans['total']}")
